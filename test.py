@@ -16,13 +16,14 @@ Dark_Grey = (59, 59, 59)
 HEALTH_BAR_COLOR = (255, 0, 0)
 HEALTH_BAR_BG_COLOR = (100, 0, 0)
 WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Crossbow Game")
 clock = pygame.time.Clock()
 
-# --- Wall sprite ---
+# --- Wall class ---
 class Wall(pygame.sprite.Sprite):
     def __init__(self, x, y, w, h):
         super().__init__()
@@ -30,7 +31,7 @@ class Wall(pygame.sprite.Sprite):
         self.image.fill(Dark_Grey)
         self.rect = self.image.get_rect(topleft=(x, y))
 
-# --- Particle (hit) ---
+# --- Particle (optional visual) ---
 class Particle(pygame.sprite.Sprite):
     def __init__(self, x, y, color=(255, 200, 100)):
         super().__init__()
@@ -39,7 +40,7 @@ class Particle(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=(x, y))
         self.vx = random.uniform(-2, 2)
         self.vy = random.uniform(-2, 2)
-        self.life = random.randint(12, 24)
+        self.life = random.randint(10, 20)
 
     def update(self):
         self.rect.x += int(self.vx)
@@ -48,43 +49,60 @@ class Particle(pygame.sprite.Sprite):
         if self.life <= 0:
             self.kill()
 
-# --- Create objects & groups ---
+# --- Create game objects/groups ---
 player = Player(WIDTH // 2, HEIGHT // 2)
 player_group = pygame.sprite.GroupSingle(player)
 projectile_group = pygame.sprite.Group()
-enemy_group = pygame.sprite.Group()
 enemy_projectile_group = pygame.sprite.Group()
+enemy_group = pygame.sprite.Group()
 particle_group = pygame.sprite.Group()
 
-# Walls are 100px borders
+# Walls: 100px borders
 walls = pygame.sprite.Group()
-walls.add(Wall(0, 0, WIDTH, 100))               # top
-walls.add(Wall(0, HEIGHT - 100, WIDTH, 100))    # bottom
-walls.add(Wall(0, 0, 100, HEIGHT))              # left
-walls.add(Wall(WIDTH - 100, 0, 100, HEIGHT))    # right
+walls.add(Wall(0, 0, WIDTH, 100))               # Top
+walls.add(Wall(0, HEIGHT - 100, WIDTH, 100))    # Bottom
+walls.add(Wall(0, 0, 100, HEIGHT))              # Left
+walls.add(Wall(WIDTH - 100, 0, 100, HEIGHT))    # Right
 
-# playable area
+# playable rectangle inside the walls
 playable_rect = pygame.Rect(100, 100, WIDTH - 200, HEIGHT - 200)
 
-# spawn helper: inside playable_rect, far from player
-def spawn_enemy_far_from_player(min_distance=150):
-    enemy_types = [Enemy, ShooterEnemy, JumperEnemy]
+# spawn helper (inside playable area and far from player)
+def spawn_enemy_of_type(enemy_cls, min_distance=150):
+    attempts = 0
     while True:
         x = random.randint(playable_rect.left + 20, playable_rect.right - 20)
         y = random.randint(playable_rect.top + 20, playable_rect.bottom - 20)
-        # ensure not too close to player
-        dist = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
-        if dist > min_distance:
-            cls = random.choice(enemy_types)
-            return cls(x, y)
+        dist = math_dist = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+        attempts += 1
+        if dist > min_distance or attempts > 100:
+            return enemy_cls(x, y)
 
-# initial enemies
-for _ in range(5):
-    enemy_group.add(spawn_enemy_far_from_player())
+# wave system: only shooters and jumpers
+wave = 1
+
+def spawn_wave(wave_num):
+    # scale counts with wave number
+    # more shooters and jumpers as wave grows
+    num_shooters = random.randint(1, 1 + wave_num)
+    num_jumpers = random.randint(0, max(1, wave_num // 1))  # at least sometimes
+    spawned = []
+    for _ in range(num_shooters):
+        e = spawn_enemy_of_type(ShooterEnemy)
+        enemy_group.add(e)
+        spawned.append(e)
+    for _ in range(num_jumpers):
+        e = spawn_enemy_of_type(JumperEnemy)
+        enemy_group.add(e)
+        spawned.append(e)
+    return spawned
+
+# initial wave
+spawn_wave(wave)
 
 # HUD
 score = 0
-font = pygame.font.SysFont(None, 36)
+font = pygame.font.SysFont(None, 32)
 paused = False
 pause_font = pygame.font.SysFont(None, 72)
 
@@ -101,72 +119,68 @@ while True:
     if not paused:
         keys = pygame.key.get_pressed()
 
-        # shooting with arrow keys (player.attack returns Projectile)
+        # shooting (arrow keys)
         if player.can_attack():
             if keys[pygame.K_UP]:
-                projectile_group.add(player.attack("up"))
+                proj = player.attack("up")
+                projectile_group.add(proj)
             elif keys[pygame.K_DOWN]:
-                projectile_group.add(player.attack("down"))
+                proj = player.attack("down")
+                projectile_group.add(proj)
             elif keys[pygame.K_LEFT]:
-                projectile_group.add(player.attack("left"))
+                proj = player.attack("left")
+                projectile_group.add(proj)
             elif keys[pygame.K_RIGHT]:
-                projectile_group.add(player.attack("right"))
+                proj = player.attack("right")
+                projectile_group.add(proj)
 
-        # updates
+        # Updates
         player_group.update(walls, keys)
-        projectile_group.update(walls)
+        projectile_group.update(walls, playable_rect)
         enemy_projectile_group.update(walls, playable_rect)
         particle_group.update()
 
-        # update enemies (shooters will add projectiles into enemy_projectile_group)
-        for enemy in list(enemy_group):
-            # pass the projectile group so ShooterEnemy can add projectiles
-            result = enemy.update(player, walls, playable_rect, enemy_projectile_group)
-            # some enemy.update implementations return EnemyProjectile; but ShooterEnemy adds directly now,
-            # so we don't need to handle returned objects. (kept for compatibility)
-            if isinstance(result, EnemyProjectile):
-                enemy_projectile_group.add(result)
+        # update enemies (pass enemy_projectile_group so shooters can add)
+        for e in list(enemy_group):
+            e.update(player, walls, playable_rect, enemy_projectile_group)
 
-        # enemy-player collisions (touch damage)
-        for enemy in enemy_group:
-            if player.rect.colliderect(enemy.rect):
-                if player.health > 0:
-                    player.health -= 1
-                # small pushback
-                dx = player.rect.centerx - enemy.rect.centerx
-                dy = player.rect.centery - enemy.rect.centery
-                dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
-                push_back = 20
-                # move player rect and pos
-                player_group.sprite.pos[0] += (push_back * dx / dist)
-                player_group.sprite.pos[1] += (push_back * dy / dist)
-                player_group.sprite.rect.center = (int(player_group.sprite.pos[0]), int(player_group.sprite.pos[1]))
+        # Projectile hits enemies
+        collisions = pygame.sprite.groupcollide(projectile_group, enemy_group, True, False)
+        for proj, hit_list in collisions.items():
+            for en in hit_list:
+                dead = en.take_hit()
+                # spawn particles
+                for _ in range(6):
+                    particle_group.add(Particle(proj.rect.centerx, proj.rect.centery, color=(255, 180, 80)))
+                if dead:
+                    en.kill()
+                    score += 1
 
-        # projectile -> enemy collisions
-        for proj in list(projectile_group):
-            hit_enemies = pygame.sprite.spritecollide(proj, enemy_group, False)
-            if hit_enemies:
-                proj.kill()
-                for e in hit_enemies:
-                    # call take_hit which sets flash; if dead, remove and add score/particles
-                    dead = e.take_hit()
-                    if dead:
-                        e.kill()
-                        score += 1
-                    # spawn small particles at impact
-                    for _ in range(6):
-                        particle_group.add(Particle(proj.rect.centerx, proj.rect.centery, color=(255, 180, 80)))
-
-        # enemy projectile -> player collisions
+        # Enemy projectile hits player
         for eproj in list(enemy_projectile_group):
             if player.rect.colliderect(eproj.rect):
                 eproj.kill()
                 if player.health > 0:
                     player.health -= 1
 
-        # optional: spawn more enemies over time (simple timer)
-        if random.random() < 0.01:  # ~1% chance per frame to add a new enemy (tune as desired)
-            enemy_group.add(spawn_enemy_far_from_player())
+        # Enemy touches player (melee damage)
+        for en in enemy_group:
+            if player.rect.colliderect(en.rect):
+                if player.health > 0:
+                    player.health -= 1
+                # small pushback
+                dx = player.rect.centerx - en.rect.centerx
+                dy = player.rect.centery - en.rect.centery
+                dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
+                push_back = 16
+                player.pos[0] += (push_back * dx / dist)
+                player.pos[1] += (push_back * dy / dist)
+                player.rect.center = (int(player.pos[0]), int(player.pos[1]))
+
+        # If wave cleared -> next wave
+        if len(enemy_group) == 0:
+            wave += 1
+            spawn_wave(wave)
 
     # --- Drawing ---
     screen.fill(Grey)
@@ -181,21 +195,23 @@ while True:
     bar_x, bar_y = 10, 10
     bar_w, bar_h = 150, 20
     pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (bar_x, bar_y, bar_w, bar_h))
-    health_w = int(bar_w * (player.health / player.PLAYER_MAX_HEALTH))
-    pygame.draw.rect(screen, HEALTH_BAR_COLOR, (bar_x, bar_y, max(0, health_w), bar_h))
+    hw = int(bar_w * (player.health / player.PLAYER_MAX_HEALTH))
+    pygame.draw.rect(screen, HEALTH_BAR_COLOR, (bar_x, bar_y, max(0, hw), bar_h))
 
-    # score
-    score_text = font.render(f"Score: {score}", True, (0, 0, 0))
-    screen.blit(score_text, (10, 40))
+    # score + wave
+    score_surf = font.render(f"Score: {score}", True, BLACK)
+    wave_surf = font.render(f"Wave: {wave}", True, BLACK)
+    screen.blit(score_surf, (10, 40))
+    screen.blit(wave_surf, (10, 70))
 
     # pause overlay
     if paused:
         overlay = pygame.Surface((WIDTH, HEIGHT))
-        overlay.set_alpha(150)
-        overlay.fill((30, 30, 30))
+        overlay.set_alpha(180)
+        overlay.fill((20, 20, 20))
         screen.blit(overlay, (0, 0))
-        pause_text = pause_font.render("PAUSED", True, WHITE)
-        screen.blit(pause_text, pause_text.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+        p = pause_font.render("PAUSED", True, WHITE)
+        screen.blit(p, p.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
 
     pygame.display.flip()
     clock.tick(FPS)
