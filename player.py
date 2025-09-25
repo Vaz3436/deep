@@ -164,10 +164,10 @@ class Enemy(pygame.sprite.Sprite):
         return self.health <= 0
 
 
-class TankEnemy(Enemy):
-    def __init__(self, x, y):
-        # slow and tanky
-        super().__init__(x, y, health=6, color=(120, 50, 50), speed=0.9)
+# class TankEnemy(Enemy):
+#     def __init__(self, x, y):
+#         # slow and tanky
+#         super().__init__(x, y, health=6, color=(120, 50, 50), speed=0.9)
 
 
 class EnemyProjectile(pygame.sprite.Sprite):

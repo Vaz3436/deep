@@ -3,7 +3,7 @@ import sys
 import random
 from player import (
     Player, Projectile,
-    Enemy, TankEnemy, ShooterEnemy, JumperEnemy, EnemyProjectile
+    Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile
 )
 
 # --- Settings ---
@@ -68,7 +68,7 @@ playable_rect = pygame.Rect(100, 100, WIDTH - 200, HEIGHT - 200)
 
 # spawn helper: inside playable_rect, far from player
 def spawn_enemy_far_from_player(min_distance=150):
-    enemy_types = [Enemy, TankEnemy, ShooterEnemy, JumperEnemy]
+    enemy_types = [Enemy, ShooterEnemy, JumperEnemy]
     while True:
         x = random.randint(playable_rect.left + 20, playable_rect.right - 20)
         y = random.randint(playable_rect.top + 20, playable_rect.bottom - 20)
