@@ -20,6 +20,10 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Crossbow Game")
 clock = pygame.time.Clock()
 
+font = pygame.font.SysFont(None, 36)
+pause_font = pygame.font.SysFont(None, 72)
+
+
 # --- Wall Class ---
 class Wall(pygame.sprite.Sprite):
     def __init__(self, x, y, w, h):
@@ -48,6 +52,27 @@ class Particle(pygame.sprite.Sprite):
             self.kill()
 
 
+# --- PowerUp ---
+class PowerUp(pygame.sprite.Sprite):
+    TYPES = ["health", "multi"]
+
+    def __init__(self, x, y, kind=None):
+        super().__init__()
+        self.type = kind if kind is not None else random.choice(PowerUp.TYPES)
+        self.image = pygame.Surface((20, 20))
+        if self.type == "health":
+            self.image.fill((0, 255, 0))
+        else:
+            self.image.fill((0, 200, 255))
+        self.rect = self.image.get_rect(center=(x, y))
+        self.timer = 15 * FPS  # optional lifetime (can remove if you want permanent until picked)
+
+    def update(self):
+        self.timer -= 1
+        if self.timer <= 0:
+            self.kill()
+
+
 # --- Create Game Objects ---
 player = Player(WIDTH // 2, HEIGHT // 2)
 player_group = pygame.sprite.GroupSingle(player)
@@ -55,8 +80,9 @@ projectile_group = pygame.sprite.Group()
 enemy_group = pygame.sprite.Group()
 enemy_projectiles = pygame.sprite.Group()
 particle_group = pygame.sprite.Group()
+powerup_group = pygame.sprite.Group()
 
-# Walls
+# Walls (keep player away from edges)
 walls = pygame.sprite.Group()
 walls.add(Wall(0, 0, WIDTH, 100))               # Top
 walls.add(Wall(0, HEIGHT - 100, WIDTH, 100))    # Bottom
@@ -64,27 +90,26 @@ walls.add(Wall(0, 0, 100, HEIGHT))              # Left
 walls.add(Wall(WIDTH - 100, 0, 100, HEIGHT))    # Right
 
 
-# --- Enemy Spawning ---
+# --- Enemy Spawning Utilities ---
 def spawn_enemy_type():
-    """Randomly pick an enemy type with weighting."""
     r = random.random()
-    if r < 0.6:   # 60% normal
+    if r < 0.6:
         return Enemy
-    elif r < 0.85:  # 25% shooter
+    elif r < 0.85:
         return ShooterEnemy
-    else:        # 15% jumper
+    else:
         return JumperEnemy
 
 
 def spawn_enemy_far_from_player(min_distance=200):
-    """Spawn enemies at least min_distance away from the player."""
+    """Pick a random point inside the arena but at least min_distance from the player."""
     while True:
-        x = random.randint(150, WIDTH - 150)
-        y = random.randint(150, HEIGHT - 150)
+        x = random.randint(120, WIDTH - 120)
+        y = random.randint(120, HEIGHT - 120)
         dist = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
         if dist > min_distance:
-            enemy_type = spawn_enemy_type()
-            return enemy_type(x, y)
+            E = spawn_enemy_type()
+            return E(x, y)
 
 
 # Wave system
@@ -103,13 +128,26 @@ def prepare_wave():
 
 prepare_wave()
 
-# Score + Fonts
+# Score + state
 score = 0
-font = pygame.font.SysFont(None, 36)
-pause_font = pygame.font.SysFont(None, 72)
-
 paused = False
 game_over = False
+
+
+def spawn_powerup_near_center(min_distance_from_player=150):
+    # choose a free tile away from walls and player
+    for _ in range(200):
+        x = random.randint(120, WIDTH - 120)
+        y = random.randint(120, HEIGHT - 120)
+        dist = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
+        if dist > min_distance_from_player:
+            pu = PowerUp(x, y)
+            powerup_group.add(pu)
+            return
+    # fallback
+    pu = PowerUp(WIDTH // 2, HEIGHT // 2)
+    powerup_group.add(pu)
+
 
 # --- Main Game Loop ---
 while True:
@@ -117,59 +155,79 @@ while True:
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
+
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE and not game_over:
                 paused = not paused
+
+            # Restart after game over: reset and teleport to center
             if game_over and event.key == pygame.K_r:
-                # Reset game
                 wave = 1
                 score = 0
                 game_over = False
                 player.health = player.PLAYER_MAX_HEALTH
+                player.multi_shot_level = 1
+                player.last_shot_time = 0
                 enemy_group.empty()
                 enemy_projectiles.empty()
+                projectile_group.empty()
+                particle_group.empty()
+                powerup_group.empty()
                 prepare_wave()
+                player.rect.center = (WIDTH // 2, HEIGHT // 2)
+                player.pos_x = float(player.rect.centerx)
+                player.pos_y = float(player.rect.centery)
 
     if not paused and not game_over:
         keys = pygame.key.get_pressed()
 
-        # Crossbow shooting
+        # Shooting (use arrow keys). hold to shoot with cooldown.
         if player.can_attack():
+            direction = None
             if keys[pygame.K_UP]:
-                projectile_group.add(player.attack('up'))
+                direction = "up"
             elif keys[pygame.K_DOWN]:
-                projectile_group.add(player.attack('down'))
+                direction = "down"
             elif keys[pygame.K_LEFT]:
-                projectile_group.add(player.attack('left'))
+                direction = "left"
             elif keys[pygame.K_RIGHT]:
-                projectile_group.add(player.attack('right'))
+                direction = "right"
 
-        # Update
+            if direction:
+                pellets = player.attack(direction)
+                for p in pellets:
+                    projectile_group.add(p)
+
+        # Update different groups with the correct arguments
         player_group.update(walls, keys)
         projectile_group.update(walls)
-        particle_group.update()
         enemy_projectiles.update(walls)
+        particle_group.update()
+        powerup_group.update()
 
-        # Enemy updates
+        # Enemy updates (some enemies may return a projectile to spawn)
         for enemy in list(enemy_group):
             result = enemy.update(player)
             if isinstance(result, pygame.sprite.Sprite):
                 enemy_projectiles.add(result)
 
-        # Collisions
+        # Collisions: player <-> enemies (touch damage + knockback)
         for enemy in enemy_group:
             if player.rect.colliderect(enemy.rect):
                 if player.health > 0:
                     player.health -= 1
                 dx = player.rect.centerx - enemy.rect.centerx
                 dy = player.rect.centery - enemy.rect.centery
-                dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
-                player.rect.x += int(20 * dx / dist)
-                player.rect.y += int(20 * dy / dist)
+                dist = max(1.0, (dx ** 2 + dy ** 2) ** 0.5)
+                player.pos_x += 20 * dx / dist
+                player.pos_y += 20 * dy / dist
+                player.rect.centerx = int(player.pos_x)
+                player.rect.centery = int(player.pos_y)
 
-        for proj in projectile_group:
-            hit_enemies = pygame.sprite.spritecollide(proj, enemy_group, False)
-            for enemy in hit_enemies:
+        # Projectile hits enemies
+        for proj in list(projectile_group):
+            hits = pygame.sprite.spritecollide(proj, enemy_group, False)
+            for enemy in hits:
                 proj.kill()
                 if enemy.take_hit():
                     enemy.kill()
@@ -177,16 +235,30 @@ while True:
                     for _ in range(6):
                         particle_group.add(Particle(proj.rect.centerx, proj.rect.centery))
 
-        for ep in enemy_projectiles:
+        # Enemy projectiles hit player
+        for ep in list(enemy_projectiles):
             if player.rect.colliderect(ep.rect):
                 ep.kill()
                 if player.health > 0:
                     player.health -= 1
 
+        # Power-up pickup
+        collected = pygame.sprite.spritecollide(player, powerup_group, True)
+        for pu in collected:
+            if pu.type == "health":
+                player.health = min(player.PLAYER_MAX_HEALTH, player.health + 2)
+            elif pu.type == "multi":
+                # stack multiplicatively
+                player.multi_shot_level *= 3
+
         # Next wave?
         if not enemy_group and not enemies_to_spawn:
             wave += 1
             prepare_wave()
+
+            # spawn a power-up every 5th wave (on waves 5,10,15,...)
+            if wave % 4 == 0:
+                spawn_powerup_near_center()
 
         # Spawn remaining enemies into group
         while enemies_to_spawn:
@@ -203,6 +275,7 @@ while True:
     enemy_group.draw(screen)
     particle_group.draw(screen)
     enemy_projectiles.draw(screen)
+    powerup_group.draw(screen)
 
     # Health bar
     bar_x, bar_y = 10, 10
