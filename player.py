@@ -84,7 +84,7 @@ class Player(pygame.sprite.Sprite):
         projectiles = []
 
         # small fixed cone in degrees
-        cone_degrees = 18.0
+        cone_degrees = 10.0 + int(self.multi_shot_level)*3
 
         if num_shots <= 1:
             projectiles.append(Projectile(self.rect.centerx, self.rect.centery, base_angle))
