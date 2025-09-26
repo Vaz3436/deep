@@ -249,7 +249,7 @@ while True:
                 player.health = min(player.PLAYER_MAX_HEALTH, player.health + 2)
             elif pu.type == "multi":
                 # stack multiplicatively
-                player.multi_shot_level *= 3
+                player.multi_shot_level += 3
 
         # Next wave?
         if not enemy_group and not enemies_to_spawn:
