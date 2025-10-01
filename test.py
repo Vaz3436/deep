@@ -1,7 +1,7 @@
 import pygame
 import sys
 import random
-from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile
+from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, AirstrikeEvent, Particle
 
 # --- Settings ---
 WIDTH, HEIGHT = 800, 600
@@ -34,23 +34,6 @@ class Wall(pygame.sprite.Sprite):
 
 
 # --- Particle Class ---
-class Particle(pygame.sprite.Sprite):
-    def __init__(self, x, y, color=(255, 200, 100)):
-        super().__init__()
-        self.image = pygame.Surface((4, 4))
-        self.image.fill(color)
-        self.rect = self.image.get_rect(center=(x, y))
-        self.dx = random.uniform(-2, 2)
-        self.dy = random.uniform(-2, 2)
-        self.lifetime = random.randint(10, 20)
-
-    def update(self):
-        self.rect.x += int(self.dx)
-        self.rect.y += int(self.dy)
-        self.lifetime -= 1
-        if self.lifetime <= 0:
-            self.kill()
-
 
 # --- PowerUp ---
 class PowerUp(pygame.sprite.Sprite):
@@ -126,12 +109,17 @@ enemies_to_spawn = []
 
 
 def prepare_wave():
-    global enemies_to_spawn
+    global enemies_to_spawn, active_events
     enemies_to_spawn = []
     base = 1
     total_enemies = base + (wave - 1)
     for _ in range(total_enemies):
         enemies_to_spawn.append(spawn_enemy_far_from_player())
+
+    # Trigger Airstrike every 7th wave
+    if wave % 7 == 0:
+        active_events.append(AirstrikeEvent(WIDTH, HEIGHT))
+
 
 
 prepare_wave()
@@ -140,6 +128,7 @@ prepare_wave()
 score = 0
 paused = False
 game_over = False
+active_events = []
 
 
 def spawn_powerup_near_center(min_distance_from_player=150):
@@ -215,6 +204,11 @@ while True:
         enemy_projectiles.update(walls)
         particle_group.update()
         powerup_group.update()
+        # Update active events
+        for event in list(active_events):
+            event.update(screen, player, enemy_group, particle_group)
+            if not event.active:
+                active_events.remove(event)
 
         # Enemy updates (some enemies may return a projectile to spawn)
         for enemy in list(enemy_group):

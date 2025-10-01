@@ -154,6 +154,23 @@ class Projectile(pygame.sprite.Sprite):
         if self.age >= self.fly_time:
             self.kill()
 
+class Particle(pygame.sprite.Sprite):
+    def __init__(self, x, y, color=(255, 200, 100)):
+        super().__init__()
+        self.image = pygame.Surface((4, 4))
+        self.image.fill(color)
+        self.rect = self.image.get_rect(center=(x, y))
+        self.dx = random.uniform(-2, 2)
+        self.dy = random.uniform(-2, 2)
+        self.lifetime = random.randint(10, 20)
+
+    def update(self):
+        self.rect.x += int(self.dx)
+        self.rect.y += int(self.dy)
+        self.lifetime -= 1
+        if self.lifetime <= 0:
+            self.kill()
+
 
 # --- Enemies (unchanged from your original) ---
 class Enemy(pygame.sprite.Sprite):
@@ -186,6 +203,83 @@ class Enemy(pygame.sprite.Sprite):
         self.flash_timer = 15
         return self.health <= 0
 
+class GameEvent:
+    """Base class for time-limited game events."""
+    def __init__(self):
+        self.active = True
+
+    def update(self, screen, player, enemy_group, particle_group):
+        raise NotImplementedError("Must be implemented by subclass")
+
+class AirstrikeEvent(GameEvent):
+    def __init__(self, width, height, duration=180):
+        super().__init__()
+        self.width = width
+        self.height = height
+        self.duration = duration  # frames
+        self.frame = 0
+
+        # Random line across screen
+        angle = random.uniform(0, math.pi)
+        self.angle = angle
+        self.dx = math.cos(angle)
+        self.dy = math.sin(angle)
+
+        # Start point is off screen
+        self.start_x = -200 * self.dx
+        self.start_y = -200 * self.dy
+        self.speed = 12  # plane speed
+
+        self.bomb_radius = 30
+        self.bomb_interval = 20  # drop every N pixels
+        self.bomb_timer = 0
+        self.bombs = []
+
+        self.last_pos = (self.start_x, self.start_y)
+
+    def update(self, screen, player, enemy_group, particle_group):
+        if self.frame >= self.duration:
+            self.active = False
+            return
+
+        self.frame += 1
+
+        # Move "plane"
+        x = self.start_x + self.frame * self.speed * self.dx
+        y = self.start_y + self.frame * self.speed * self.dy
+        pos = (int(x), int(y))
+
+        # Draw dotted line for strike path
+        if self.frame % 5 < 3:
+            pygame.draw.circle(screen, (255, 0, 0), pos, 2)
+
+        # Bomb dropping
+        self.bomb_timer += self.speed
+        if self.bomb_timer >= self.bomb_interval:
+            self.bomb_timer = 0
+            self.bombs.append({"x": x, "y": y, "r": self.bomb_radius, "timer": 20})
+
+        # Draw bombs and check collisions
+        for bomb in list(self.bombs):
+            bomb["timer"] -= 1
+            pygame.draw.circle(screen, (255, 200, 0), (int(bomb["x"]), int(bomb["y"])), 6)
+            if bomb["timer"] <= 0:
+                bx, by = bomb["x"], bomb["y"]
+                # Explosion visual
+                pygame.draw.circle(screen, (255, 100, 0), (int(bx), int(by)), bomb["r"], 2)
+                for _ in range(10):
+                    particle_group.add(Particle(int(bx), int(by)))
+                # Damage enemies
+                for enemy in list(enemy_group):
+                    ex, ey = enemy.rect.center
+                    if ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5 <= bomb["r"]:
+                        if enemy.take_hit():
+                            enemy.kill()
+                # Damage player
+                px, py = player.rect.center
+                if ((bx - px) ** 2 + (by - py) ** 2) ** 0.5 <= bomb["r"]:
+                    player.health -= 1
+                self.bombs.remove(bomb)
 
 class ShooterEnemy(Enemy):
     def __init__(self, x, y):
