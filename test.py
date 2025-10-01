@@ -117,7 +117,7 @@ def prepare_wave():
         enemies_to_spawn.append(spawn_enemy_far_from_player())
 
     # Trigger Airstrike every 7th wave
-    if wave % 7 == 0:
+    if wave % 2 == 0:
         active_events.append(AirstrikeEvent(WIDTH, HEIGHT))
 
 
