@@ -95,7 +95,7 @@ class Player(pygame.sprite.Sprite):
 
         num_shots = int(self.multi_shot_level)
         projectiles = []
-        cone_degrees = 20.0  # tight shotgun cone
+        cone_degrees = 30 + (self.multi_shot_level*5)  # tight shotgun cone
 
         if num_shots <= 1:
             projectiles.append(Projectile(
@@ -123,9 +123,16 @@ class Projectile(pygame.sprite.Sprite):
         # hits_left: how many enemies it can damage before disappearing
         self.hits_left = max(1, piercing + 1)
 
-        base_w, base_h = 14, 4
+        # Make explosive bolts visually bigger and chunkier depending on explosive level
+        base_w = 14 + 4 * explosive
+        base_h = 4 + 2 * explosive
         base = pygame.Surface((base_w, base_h), pygame.SRCALPHA)
-        pygame.draw.rect(base, YELLOW, (0, 0, base_w, base_h))
+        # explosive-looking tint if explosive > 0
+        if explosive > 0:
+            tint = (255, 180, 60)
+            pygame.draw.rect(base, tint, (0, 0, base_w, base_h))
+        else:
+            pygame.draw.rect(base, YELLOW, (0, 0, base_w, base_h))
         self.image = pygame.transform.rotate(base, -angle_degrees)
         self.rect = self.image.get_rect(center=(x, y))
 
@@ -137,7 +144,8 @@ class Projectile(pygame.sprite.Sprite):
         self.dy = PROJECTILE_SPEED * math.sin(rad)
 
         self.age = 0
-        self.fly_time = 45
+        self.fly_time = 45  # explosive bolts fly a bit longer
+
 
     def update(self, walls=None):
         self.age += 1
