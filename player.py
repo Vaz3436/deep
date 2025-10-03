@@ -212,7 +212,7 @@ class GameEvent:
         raise NotImplementedError("Must be implemented by subclass")
 
 class AirstrikeEvent(GameEvent):
-    def __init__(self, width, height, duration=180):
+    def __init__(self, width, height, player_x, player_y, duration=180):
         super().__init__()
         self.width = width
         self.height = height
@@ -220,14 +220,17 @@ class AirstrikeEvent(GameEvent):
         self.frame = 0
 
         # Random line across screen
-        angle = random.uniform(0, math.pi)
+        angle = random.uniform(-math.pi/2, math.pi/2)
         self.angle = angle
-        self.dx = math.cos(angle)
-        self.dy = math.sin(angle)
+        deltax = player_x + 200
+        deltay = player_y - 300
+        self.dx = (deltax)/(math.sqrt(deltax**2 + deltay**2))
+        self.dy = (deltay)/(math.sqrt(deltax**2 + deltay**2))
+
 
         # Start point is off screen
-        self.start_x = -200 * self.dx
-        self.start_y = -200 * self.dy
+        self.start_x = -200
+        self.start_y = 300
         self.speed = 12  # plane speed
 
         self.bomb_radius = 30

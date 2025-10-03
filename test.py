@@ -118,7 +118,7 @@ def prepare_wave():
 
     # Trigger Airstrike every 7th wave
     if wave % 2 == 0:
-        active_events.append(AirstrikeEvent(WIDTH, HEIGHT))
+        active_events.append(AirstrikeEvent(WIDTH, HEIGHT, player.pos_x, player.pos_y))
 
 
 
