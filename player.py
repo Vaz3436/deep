@@ -19,6 +19,7 @@ YELLOW = (255, 255, 0)
 STUCK_ARROW_COLOR = (180, 180, 60)
 
 
+
 class Player(pygame.sprite.Sprite):
     PLAYER_MAX_HEALTH = 5
 
@@ -216,27 +217,40 @@ class AirstrikeEvent(GameEvent):
         super().__init__()
         self.width = width
         self.height = height
-        self.duration = duration  # frames
+        self.duration = duration  # total frames
         self.frame = 0
 
-        # Random line across screen
-        angle = random.uniform(-math.pi/2, math.pi/2)
-        self.angle = angle
+        # Calculate direction vector toward a random offset from player
         deltax = player_x + 200
         deltay = player_y - 300
-        self.dx = (deltax)/(math.sqrt(deltax**2 + deltay**2))
-        self.dy = (deltay)/(math.sqrt(deltax**2 + deltay**2))
+        magnitude = math.sqrt(deltax ** 2 + deltay ** 2)
+        self.dx = deltax / magnitude
+        self.dy = deltay / magnitude
 
-
-        # Start point is off screen
+        # Start position off-screen
         self.start_x = -200
         self.start_y = 300
-        self.speed = 12  # plane speed
+        self.speed = 12  # pixels per frame
 
+        # Bomb properties
         self.bomb_radius = 30
         self.bomb_interval = 20  # drop every N pixels
         self.bomb_timer = 0
         self.bombs = []
+
+        # Create placeholder plane on a larger surface to avoid clipping during rotation
+        self.plane_img = pygame.Surface((80, 80), pygame.SRCALPHA)
+
+        # Draw a simple stylized plane: triangle with tail
+        pygame.draw.polygon(
+            self.plane_img,
+            (200, 200, 255),  # Light blue
+            [(10, 40), (50, 20), (70, 40), (50, 60)]  # Jet shape
+        )
+
+        # Rotate the plane once based on direction
+        angle_degrees = -math.degrees(math.atan2(self.dy, self.dx))
+        self.plane_rotated = pygame.transform.rotate(self.plane_img, angle_degrees)
 
         self.last_pos = (self.start_x, self.start_y)
 
@@ -247,41 +261,72 @@ class AirstrikeEvent(GameEvent):
 
         self.frame += 1
 
-        # Move "plane"
+        # Plane current position
         x = self.start_x + self.frame * self.speed * self.dx
         y = self.start_y + self.frame * self.speed * self.dy
-        pos = (int(x), int(y))
+        plane_pos = (int(x), int(y))
 
-        # Draw dotted line for strike path
+        # Draw the rotated plane image at the correct position
+        plane_rect = self.plane_rotated.get_rect(center=plane_pos)
+        screen.blit(self.plane_rotated, plane_rect)
+
+        # Debug: show strike path as dotted red line
         if self.frame % 5 < 3:
-            pygame.draw.circle(screen, (255, 0, 0), pos, 2)
+            pygame.draw.circle(screen, (255, 0, 0), plane_pos, 2)
 
-        # Bomb dropping
+        # Drop bombs at intervals based on travel distance
         self.bomb_timer += self.speed
         if self.bomb_timer >= self.bomb_interval:
             self.bomb_timer = 0
-            self.bombs.append({"x": x, "y": y, "r": self.bomb_radius, "timer": 20})
+            self.bombs.append({
+                "x": x,
+                "y": y,
+                "r": self.bomb_radius,
+                "timer": 20
+            })
 
-        # Draw bombs and check collisions
+        # Update bombs
         for bomb in list(self.bombs):
             bomb["timer"] -= 1
-            pygame.draw.circle(screen, (255, 200, 0), (int(bomb["x"]), int(bomb["y"])), 6)
+
+            # Draw falling bomb
+            pygame.draw.circle(
+                screen,
+                (255, 200, 0),  # Yellow-orange
+                (int(bomb["x"]), int(bomb["y"])),
+                6
+            )
+
+            # Explosion
             if bomb["timer"] <= 0:
                 bx, by = bomb["x"], bomb["y"]
+
                 # Explosion visual
-                pygame.draw.circle(screen, (255, 100, 0), (int(bx), int(by)), bomb["r"], 2)
+                pygame.draw.circle(
+                    screen,
+                    (255, 100, 0),  # Orange-red
+                    (int(bx), int(by)),
+                    bomb["r"],
+                    2
+                )
+
+                # Add particles
                 for _ in range(10):
                     particle_group.add(Particle(int(bx), int(by)))
+
                 # Damage enemies
                 for enemy in list(enemy_group):
                     ex, ey = enemy.rect.center
                     if ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5 <= bomb["r"]:
                         if enemy.take_hit():
                             enemy.kill()
+
                 # Damage player
                 px, py = player.rect.center
                 if ((bx - px) ** 2 + (by - py) ** 2) ** 0.5 <= bomb["r"]:
                     player.health -= 1
+
+                # Remove bomb after explosion
                 self.bombs.remove(bomb)
 
 class ShooterEnemy(Enemy):
