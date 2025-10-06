@@ -235,16 +235,27 @@ while True:
             if hits:
                 # explosive projectiles explode on first hit
                 if getattr(proj, "explosive", 0) and proj.explosive > 0:
-                    radius = 30 + 10 * proj.explosive
+                    # --- Explosion: larger base, stacks add more radius & damage ---
+                    base_radius = 50                       # made base a bit larger
+                    radius = base_radius + 20 * proj.explosive
                     cx, cy = proj.rect.center
                     for enemy in list(enemy_group):
                         ex, ey = enemy.rect.center
                         if ((ex - cx) ** 2 + (ey - cy) ** 2) ** 0.5 <= radius:
-                            if enemy.take_hit():
+                            # explosive stacks increase the number of hits applied to each enemy
+                            died = False
+                            for _ in range(1 + proj.explosive):
+                                if enemy.take_hit():
+                                    died = True
+                                    break
+                            if died:
                                 enemy.kill()
                                 score += 1
-                                for _ in range(6):
+                                for _ in range(8):
                                     particle_group.add(Particle(enemy.rect.centerx, enemy.rect.centery))
+                    # big particle burst at explosion center
+                    for _ in range(20 + 6 * proj.explosive):
+                        particle_group.add(Particle(cx, cy, color=(255, 180, 50)))
                     proj.kill()
                     continue
 
@@ -275,7 +286,7 @@ while True:
                 player.health = min(player.PLAYER_MAX_HEALTH, player.health + 2)
             elif pu.type == "multi":
                 # multiply pellet count: 1 -> 3 -> 9 -> 27 ...
-                player.multi_shot_level = int(player.multi_shot_level * 3)
+                player.multi_shot_level = int(+3)
             elif pu.type == "speed":
                 player.speed_level += 1
             elif pu.type == "rapid":
@@ -291,7 +302,7 @@ while True:
             prepare_wave()
 
             # spawn a power-up every 5th wave (on waves 5,10,15,...)
-            if wave % 5 == 0:
+            if wave % 4 == 0:
                 spawn_powerup_near_center()
 
         # Spawn remaining enemies into group
@@ -338,6 +349,21 @@ while True:
         instr_text = font.render("Press R to Restart", True, WHITE)
         rect2 = instr_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20))
         screen.blit(instr_text, rect2)
+
+    # Draw HUD for powerups
+    hud_font = pygame.font.SysFont(None, 24)
+    y_offset = 130
+    hud_lines = [
+        f"Multishot: {player.multi_shot_level}",
+        f"Speed: {player.speed_level}",
+        f"Rapid: {player.rapid_level}",
+        f"Piercing: {player.piercing_level}",
+        f"Explosive: {player.explosive_level}"
+    ]
+    for line in hud_lines:
+        text_surf = hud_font.render(line, True, (255, 255, 255))
+        screen.blit(text_surf, (10, y_offset))
+        y_offset += 20
 
     pygame.display.flip()
     clock.tick(FPS)
