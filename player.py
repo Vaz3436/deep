@@ -2,6 +2,7 @@ import pygame
 import math
 import random
 
+pygame.init()
 # --- Constants ---
 PLAYER_SPEED = 4
 PLAYER_RADIUS = 20
@@ -222,7 +223,7 @@ class GameEvent:
 
 
 class AirstrikeEvent(GameEvent):
-    def __init__(self, width, height, player_x, player_y, duration=180):
+    def __init__(self, width, height, player_x, player_y, pygame_instance, duration=180):
         super().__init__()
         self.width = width
         self.height = height
@@ -247,6 +248,11 @@ class AirstrikeEvent(GameEvent):
         self.bomb_timer = 0
         self.bombs = []
         self.last_pos = (self.start_x, self.start_y)
+        self.image = pygame_instance.image.load("plane.png").convert_alpha()
+
+        #self.image = pygame_instance.image.load("./plane.png").convert_alpha()
+
+
 
     def update(self, screen, player, enemy_group, particle_group):
         if self.frame >= self.duration:
@@ -258,6 +264,9 @@ class AirstrikeEvent(GameEvent):
         # Plane current position
         x = self.start_x + self.frame * self.speed * self.dx
         y = self.start_y + self.frame * self.speed * self.dy
+
+        screen.blit(self.image, (x, y))
+        print((x, y))
         # Drop bombs at intervals based on travel distance
         self.bomb_timer += self.speed
         if self.bomb_timer >= self.bomb_interval:
