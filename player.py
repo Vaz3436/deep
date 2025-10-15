@@ -243,30 +243,9 @@ class AirstrikeEvent(GameEvent):
 
         # Bomb properties
         self.bomb_radius = 30
-        self.bomb_interval = 20  # drop every N pixels
+        self.bomb_interval = 50  # drop every N pixels
         self.bomb_timer = 0
         self.bombs = []
-
-        # Create placeholder plane on a larger surface to avoid clipping during rotation
-        self.plane_img = pygame.Surface((80, 80), pygame.SRCALPHA)
-        # Fill with a transparent color (optional, as SRCALPHA is used)
-        self.plane_img.fill((0, 0, 0, 0))
-
-        # --- FIX: Changed plane color to a contrasting color (Black) ---
-        # Draw a simple stylized plane: triangle with tail
-        pygame.draw.polygon(
-            self.plane_img,
-            (0, 0, 0),  # **Black (Highly contrasting color for visibility)**
-            [(10, 40), (50, 20), (70, 40), (50, 60)]  # Jet shape
-        )
-        # Optional: Add a small red cockpit/detail for even more contrast
-        pygame.draw.circle(self.plane_img, (255, 0, 0), (60, 40), 5)
-        # ------------------------------------------------------------------
-
-        # Rotate the plane once based on direction
-        angle_degrees = -math.degrees(math.atan2(self.dy, self.dx))
-        self.plane_rotated = pygame.transform.rotate(self.plane_img, angle_degrees)
-
         self.last_pos = (self.start_x, self.start_y)
 
     def update(self, screen, player, enemy_group, particle_group):
@@ -279,18 +258,6 @@ class AirstrikeEvent(GameEvent):
         # Plane current position
         x = self.start_x + self.frame * self.speed * self.dx
         y = self.start_y + self.frame * self.speed * self.dy
-        plane_pos = (int(x), int(y))
-
-        # Draw the rotated plane image at the correct position
-        plane_rect = self.plane_rotated.get_rect(center=plane_pos)
-        # --- The plane drawing code here is correct: ---
-        screen.blit(self.plane_rotated, plane_rect)
-        # -----------------------------------------------
-
-        # Debug: show strike path as dotted red line
-        if self.frame % 5 < 3:
-            pygame.draw.circle(screen, (255, 0, 0), plane_pos, 2)
-
         # Drop bombs at intervals based on travel distance
         self.bomb_timer += self.speed
         if self.bomb_timer >= self.bomb_interval:
@@ -299,7 +266,7 @@ class AirstrikeEvent(GameEvent):
                 "x": x,
                 "y": y,
                 "r": self.bomb_radius,
-                "timer": 20
+                "timer": 100
             })
 
         # Update bombs
