@@ -116,6 +116,8 @@ class Player(pygame.sprite.Sprite):
 
         return projectiles
 
+class Plane(pygame.sprite.Sprite):
+
 
 class Projectile(pygame.sprite.Sprite):
     def __init__(self, x, y, angle_degrees, piercing=0, explosive=0):
@@ -368,6 +370,8 @@ class JumperEnemy(Enemy):
             if abs(dx) < 10 and abs(dy) < 10:
                 self.target = None
         return None
+
+
 
 
 class EnemyProjectile(pygame.sprite.Sprite):
