@@ -8,32 +8,27 @@ WIDTH, HEIGHT = 800, 600
 FPS = 60
 
 # --- Colors ---
-Grey = (146, 142, 133)
-Dark_Grey = (59, 59, 59)
+GREY = (146, 142, 133)
+DARK_GREY = (59, 59, 59)
 HEALTH_BAR_COLOR = (255, 0, 0)
 HEALTH_BAR_BG_COLOR = (100, 0, 0)
 WHITE = (255, 255, 255)
 
-# --- Init ---
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Crossbow Game")
+pygame.display.set_caption("Dungeon Shooter")
 clock = pygame.time.Clock()
 
 font = pygame.font.SysFont(None, 36)
 pause_font = pygame.font.SysFont(None, 72)
-
 
 # --- Wall Class ---
 class Wall(pygame.sprite.Sprite):
     def __init__(self, x, y, w, h):
         super().__init__()
         self.image = pygame.Surface((w, h))
-        self.image.fill(Dark_Grey)
+        self.image.fill(DARK_GREY)
         self.rect = self.image.get_rect(topleft=(x, y))
-
-
-# --- Particle Class ---
 
 # --- PowerUp ---
 class PowerUp(pygame.sprite.Sprite):
@@ -41,7 +36,7 @@ class PowerUp(pygame.sprite.Sprite):
 
     def __init__(self, x, y, kind=None):
         super().__init__()
-        self.type = kind if kind is not None else random.choice(PowerUp.TYPES)
+        self.type = kind if kind else random.choice(PowerUp.TYPES)
         self.image = pygame.Surface((20, 20))
         cmap = {
             "health": (0, 255, 0),
@@ -53,32 +48,14 @@ class PowerUp(pygame.sprite.Sprite):
         }
         self.image.fill(cmap.get(self.type, (255, 255, 255)))
         self.rect = self.image.get_rect(center=(x, y))
-        self.timer = 15 * FPS
+        self.timer = 20 * FPS
 
     def update(self):
         self.timer -= 1
         if self.timer <= 0:
             self.kill()
 
-
-# --- Create Game Objects ---
-player = Player(WIDTH // 2, HEIGHT // 2)
-player_group = pygame.sprite.GroupSingle(player)
-projectile_group = pygame.sprite.Group()
-enemy_group = pygame.sprite.Group()
-enemy_projectiles = pygame.sprite.Group()
-particle_group = pygame.sprite.Group()
-powerup_group = pygame.sprite.Group()
-
-# Walls (keep player away from edges)
-walls = pygame.sprite.Group()
-walls.add(Wall(0, 0, WIDTH, 100))               # Top
-walls.add(Wall(0, HEIGHT - 100, WIDTH, 100))    # Bottom
-walls.add(Wall(0, 0, 100, HEIGHT))              # Left
-walls.add(Wall(WIDTH - 100, 0, 100, HEIGHT))    # Right
-
-
-# --- Enemy Spawning Utilities ---
+# --- Enemy Spawning ---
 def spawn_enemy_type():
     r = random.random()
     if r < 0.6:
@@ -88,79 +65,147 @@ def spawn_enemy_type():
     else:
         return JumperEnemy
 
-
-def spawn_enemy_far_from_player(min_distance=200):
-    """Pick a random point inside the arena but at least min_distance from the player."""
-    for _ in range(500):
-        x = random.randint(120, WIDTH - 120)
-        y = random.randint(120, HEIGHT - 120)
+def spawn_enemy_far_from_player(player):
+    for _ in range(200):
+        x = random.randint(150, WIDTH - 150)
+        y = random.randint(150, HEIGHT - 150)
         dist = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
-        if dist > min_distance:
-            E = spawn_enemy_type()
-            return E(x, y)
-    # fallback
-    E = spawn_enemy_type()
-    return E(120, 120)
+        if dist > 200:
+            return spawn_enemy_type()(x, y)
+    return spawn_enemy_type()(150, 150)
 
+# --- Room ---
+class Room:
+    def __init__(self, x, y):
+        self.coords = (x, y)
+        self.enemies = pygame.sprite.Group()
+        self.powerups = pygame.sprite.Group()
+        self.enemy_projectiles = pygame.sprite.Group()
+        self.events = []
+        self.walls = pygame.sprite.Group()
+        self.cleared = False
+        self.doors_locked = True
+        self.create_walls_with_doors()
 
-# Wave system
-wave = 1
-enemies_to_spawn = []
+    def create_walls_with_doors(self):
+        """Walls with door gaps in each direction"""
+        wall_thickness = 40
+        door_width = 100
+        # Top
+        self.walls.add(Wall(0, 0, WIDTH // 2 - door_width // 2, wall_thickness))
+        self.walls.add(Wall(WIDTH // 2 + door_width // 2, 0, WIDTH // 2 - door_width // 2, wall_thickness))
+        # Bottom
+        self.walls.add(Wall(0, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
+        self.walls.add(Wall(WIDTH // 2 + door_width // 2, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
+        # Left
+        self.walls.add(Wall(0, 0, wall_thickness, HEIGHT // 2 - door_width // 2))
+        self.walls.add(Wall(0, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
+        # Right
+        self.walls.add(Wall(WIDTH - wall_thickness, 0, wall_thickness, HEIGHT // 2 - door_width // 2))
+        self.walls.add(Wall(WIDTH - wall_thickness, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
 
+    def spawn_enemies(self, player):
+        for _ in range(random.randint(2, 5)):
+            e = spawn_enemy_far_from_player(player)
+            self.enemies.add(e)
 
-def prepare_wave():
-    global enemies_to_spawn, active_events
-    enemies_to_spawn = []
-    base = 1
-    total_enemies = base + (wave - 1)
-    for _ in range(total_enemies):
-        enemies_to_spawn.append(spawn_enemy_far_from_player())
+    def unlock_doors(self):
+        self.doors_locked = False
 
-    # Trigger Airstrike every 7th wave
-    if wave % 2 == 0:
-        active_events.append(AirstrikeEvent(WIDTH, HEIGHT, player.pos_x, player.pos_y, pygame))
+    def update(self, player, particle_group, projectile_group):
+        # events (like airstrike)
+        for event in list(self.events):
+            event.update(screen, player, self.enemies, particle_group)
+            if not event.active:
+                self.events.remove(event)
 
+        # enemy AI
+        for enemy in list(self.enemies):
+            result = enemy.update(player)
+            if isinstance(result, pygame.sprite.Sprite):
+                self.enemy_projectiles.add(result)
 
+        # check clear
+        if not self.cleared and not self.enemies:
+            self.cleared = True
+            self.unlock_doors()
+            # drop powerup chance
+            if random.random() < 0.5:
+                self.powerups.add(PowerUp(WIDTH//2, HEIGHT//2))
 
-prepare_wave()
+# --- Dungeon ---
+class Dungeon:
+    def __init__(self):
+        self.rooms = {}
+        self.current = (0, 0)
+        self.load_room(0, 0)
 
-# Score + state
+    def load_room(self, x, y):
+        if (x, y) not in self.rooms:
+            room = Room(x, y)
+            room.spawn_enemies(player)  # 👈 spawn enemies right away when created
+            self.rooms[(x, y)] = room
+        self.current = (x, y)
+
+    def get_room(self):
+        return self.rooms[self.current]
+
+    def move(self, direction):
+        x, y = self.current
+        if direction == "up": y -= 1
+        elif direction == "down": y += 1
+        elif direction == "left": x -= 1
+        elif direction == "right": x += 1
+        self.load_room(x, y)
+
+# --- Transition Check ---
+def check_room_transition(player, dungeon):
+    margin = 10
+    px, py = player.rect.center
+    if py < margin:  # top
+        if not dungeon.get_room().doors_locked:
+            dungeon.move("up")
+            player.pos_y = HEIGHT - 100
+    elif py > HEIGHT - margin:
+        if not dungeon.get_room().doors_locked:
+            dungeon.move("down")
+            player.pos_y = 100
+    elif px < margin:
+        if not dungeon.get_room().doors_locked:
+            dungeon.move("left")
+            player.pos_x = WIDTH - 120
+    elif px > WIDTH - margin:
+        if not dungeon.get_room().doors_locked:
+            dungeon.move("right")
+            player.pos_x = 120
+
+    player.rect.centerx = int(player.pos_x)
+    player.rect.centery = int(player.pos_y)
+
+# --- Create Player and Groups ---
+player = Player(WIDTH // 2, HEIGHT // 2)
+player_group = pygame.sprite.GroupSingle(player)
+projectile_group = pygame.sprite.Group()
+particle_group = pygame.sprite.Group()
+
+dungeon = Dungeon()
+dungeon.get_room().spawn_enemies(player)
+
 score = 0
 paused = False
 game_over = False
-active_events = []
 
-
-def spawn_powerup_near_center(min_distance_from_player=150):
-    for _ in range(200):
-        x = random.randint(120, WIDTH - 120)
-        y = random.randint(120, HEIGHT - 120)
-        dist = ((x - player.rect.centerx) ** 2 + (y - player.rect.centery) ** 2) ** 0.5
-        if dist > min_distance_from_player:
-            pu = PowerUp(x, y)
-            powerup_group.add(pu)
-            return
-    # fallback
-    pu = PowerUp(WIDTH // 2, HEIGHT // 2)
-    powerup_group.add(pu)
-
-
-# --- Main Game Loop ---
+# --- Main Loop ---
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE and not game_over:
                 paused = not paused
-
-            # Restart after game over: reset and teleport to center
             if game_over and event.key == pygame.K_r:
-                wave = 1
-                score = 0
-                game_over = False
+                dungeon = Dungeon()
                 player.health = player.PLAYER_MAX_HEALTH
                 player.multi_shot_level = 1
                 player.speed_level = 0
@@ -168,125 +213,91 @@ while True:
                 player.piercing_level = 0
                 player.explosive_level = 0
                 player.last_shot_time = 0
-                enemy_group.empty()
-                enemy_projectiles.empty()
                 projectile_group.empty()
                 particle_group.empty()
-                powerup_group.empty()
-                prepare_wave()
-                player.rect.center = (WIDTH // 2, HEIGHT // 2)
-                player.pos_x = float(player.rect.centerx)
-                player.pos_y = float(player.rect.centery)
+                dungeon.get_room().spawn_enemies(player)
+                player.pos_x, player.pos_y = WIDTH//2, HEIGHT//2
+                player.rect.center = (WIDTH//2, HEIGHT//2)
+                score = 0
+                game_over = False
 
     if not paused and not game_over:
         keys = pygame.key.get_pressed()
 
-        # Shooting (use arrow keys). hold to shoot with cooldown.
+        # Player shooting
         if player.can_attack():
             direction = None
-            if keys[pygame.K_UP]:
-                direction = "up"
-            elif keys[pygame.K_DOWN]:
-                direction = "down"
-            elif keys[pygame.K_LEFT]:
-                direction = "left"
-            elif keys[pygame.K_RIGHT]:
-                direction = "right"
-
+            if keys[pygame.K_UP]: direction = "up"
+            elif keys[pygame.K_DOWN]: direction = "down"
+            elif keys[pygame.K_LEFT]: direction = "left"
+            elif keys[pygame.K_RIGHT]: direction = "right"
             if direction:
-                pellets = player.attack(direction)
-                for p in pellets:
+                for p in player.attack(direction):
                     projectile_group.add(p)
 
-        # Update groups (pass walls/keys where needed)
-        player_group.update(walls, keys)
-        projectile_group.update(walls)
-        enemy_projectiles.update(walls)
+        room = dungeon.get_room()
+        player_group.update(room.walls, keys)
+        projectile_group.update(room.walls)
         particle_group.update()
-        powerup_group.update()
-        # Update active events
-        for event in list(active_events):
-            event.update(screen, player, enemy_group, particle_group)
-            if not event.active:
-                active_events.remove(event)
+        room.powerups.update()
+        room.enemy_projectiles.update(room.walls)
 
-        # Enemy updates (some enemies may return a projectile to spawn)
-        for enemy in list(enemy_group):
-            result = enemy.update(player)
-            if isinstance(result, pygame.sprite.Sprite):
-                enemy_projectiles.add(result)
+        room.update(player, particle_group, projectile_group)
+        check_room_transition(player, dungeon)
 
-        # Collisions: player <-> enemies (touch damage + knockback)
-        for enemy in list(enemy_group):
+        # Enemy collisions
+        for enemy in list(room.enemies):
             if player.rect.colliderect(enemy.rect):
-                if player.health > 0:
-                    player.health -= 1
+                player.health -= 1
                 dx = player.rect.centerx - enemy.rect.centerx
                 dy = player.rect.centery - enemy.rect.centery
-                dist = max(1.0, (dx ** 2 + dy ** 2) ** 0.5)
+                dist = max(1, (dx**2+dy**2)**0.5)
                 player.pos_x += 20 * dx / dist
                 player.pos_y += 20 * dy / dist
-                player.rect.centerx = int(player.pos_x)
-                player.rect.centery = int(player.pos_y)
 
-        # Projectile hits enemies (supports piercing and explosive)
+        # Projectile hits
         for proj in list(projectile_group):
-            hits = pygame.sprite.spritecollide(proj, enemy_group, False)
+            hits = pygame.sprite.spritecollide(proj, room.enemies, False)
             if hits:
-                # explosive projectiles explode on first hit
-                if getattr(proj, "explosive", 0) and proj.explosive > 0:
-                    # --- Explosion: larger base, stacks add more radius & damage ---
-                    base_radius = 50                       # made base a bit larger
-                    radius = base_radius + 20 * proj.explosive
+                if getattr(proj, "explosive", 0) > 0:
                     cx, cy = proj.rect.center
-                    for enemy in list(enemy_group):
+                    radius = 50 + proj.explosive * 20
+                    for enemy in list(room.enemies):
                         ex, ey = enemy.rect.center
-                        if ((ex - cx) ** 2 + (ey - cy) ** 2) ** 0.5 <= radius:
-                            # explosive stacks increase the number of hits applied to each enemy
-                            died = False
+                        if ((ex - cx)**2 + (ey - cy)**2)**0.5 <= radius:
                             for _ in range(1 + proj.explosive):
                                 if enemy.take_hit():
-                                    died = True
-                                    break
-                            if died:
+                                    enemy.kill()
+                                    score += 1
+                                    for _ in range(6):
+                                        particle_group.add(Particle(ex, ey))
+                    proj.kill()
+                else:
+                    for enemy in hits:
+                        if proj.hits_left > 0:
+                            if enemy.take_hit():
                                 enemy.kill()
                                 score += 1
-                                for _ in range(8):
+                                for _ in range(6):
                                     particle_group.add(Particle(enemy.rect.centerx, enemy.rect.centery))
-                    # big particle burst at explosion center
-                    for _ in range(20 + 6 * proj.explosive):
-                        particle_group.add(Particle(cx, cy, color=(255, 180, 50)))
-                    proj.kill()
-                    continue
+                            proj.hits_left -= 1
+                        if proj.hits_left <= 0:
+                            proj.kill()
+                            break
 
-                # normal/piercing handling
-                for enemy in hits:
-                    if getattr(proj, "hits_left", 1) > 0:
-                        if enemy.take_hit():
-                            enemy.kill()
-                            score += 1
-                            for _ in range(6):
-                                particle_group.add(Particle(enemy.rect.centerx, enemy.rect.centery))
-                        proj.hits_left -= 1
-                    if proj.hits_left <= 0:
-                        proj.kill()
-                        break
-
-        # Enemy projectiles hit player
-        for ep in list(enemy_projectiles):
+        # Enemy projectiles
+        for ep in list(room.enemy_projectiles):
             if player.rect.colliderect(ep.rect):
                 ep.kill()
-                if player.health > 0:
-                    player.health -= 1
+                player.health -= 1
 
-        # Power-up pickup
-        collected = pygame.sprite.spritecollide(player, powerup_group, True)
+        # Powerups
+        collected = pygame.sprite.spritecollide(player, room.powerups, True)
         for pu in collected:
             if pu.type == "health":
                 player.health = min(player.PLAYER_MAX_HEALTH, player.health + 2)
             elif pu.type == "multi":
-                # multiply pellet count: 1 -> 3 -> 9 -> 27 ...
-                player.multi_shot_level = int(+3)
+                player.multi_shot_level *= 3
             elif pu.type == "speed":
                 player.speed_level += 1
             elif pu.type == "rapid":
@@ -296,46 +307,29 @@ while True:
             elif pu.type == "explosive":
                 player.explosive_level += 1
 
-        # Next wave?
-        if not enemy_group and not enemies_to_spawn:
-            wave += 1
-            prepare_wave()
-
-            # spawn a power-up every 5th wave (on waves 5,10,15,...)
-            if wave % 4 == 0:
-                spawn_powerup_near_center()
-
-        # Spawn remaining enemies into group
-        while enemies_to_spawn:
-            enemy_group.add(enemies_to_spawn.pop())
-
         if player.health <= 0:
             game_over = True
 
-    # --- Drawing ---
-    screen.fill(Grey)
-    walls.draw(screen)
+    # --- Draw ---
+    screen.fill(GREY)
+    room = dungeon.get_room()
+    room.walls.draw(screen)
     player_group.draw(screen)
     projectile_group.draw(screen)
-    enemy_group.draw(screen)
+    room.enemies.draw(screen)
+    room.enemy_projectiles.draw(screen)
     particle_group.draw(screen)
-    enemy_projectiles.draw(screen)
-    powerup_group.draw(screen)
+    room.powerups.draw(screen)
 
-    # Health bar
-    bar_x, bar_y = 10, 10
-    bar_width, bar_height = 150, 20
-    pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (bar_x, bar_y, bar_width, bar_height))
-    health_width = int(bar_width * (player.health / player.PLAYER_MAX_HEALTH))
-    pygame.draw.rect(screen, HEALTH_BAR_COLOR, (bar_x, bar_y, health_width, bar_height))
+    # HUD
+    pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (10, 10, 150, 20))
+    health_width = int(150 * (player.health / player.PLAYER_MAX_HEALTH))
+    pygame.draw.rect(screen, HEALTH_BAR_COLOR, (10, 10, health_width, 20))
 
-    # Score + Wave + HP
     score_text = font.render(f"Score: {score}", True, (0, 0, 0))
-    wave_text = font.render(f"Wave: {wave}", True, (0, 0, 0))
-    hp_text = font.render(f"HP: {player.health}", True, (0, 0, 0))
+    room_text = font.render(f"Room: {room.coords}", True, (0, 0, 0))
     screen.blit(score_text, (10, 40))
-    screen.blit(wave_text, (10, 70))
-    screen.blit(hp_text, (10, 100))
+    screen.blit(room_text, (10, 70))
 
     if paused and not game_over:
         pause_text = pause_font.render("PAUSED", True, WHITE)
@@ -350,7 +344,7 @@ while True:
         rect2 = instr_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20))
         screen.blit(instr_text, rect2)
 
-    # Draw HUD for powerups
+    # Powerup stats
     hud_font = pygame.font.SysFont(None, 24)
     y_offset = 130
     hud_lines = [

@@ -116,9 +116,6 @@ class Player(pygame.sprite.Sprite):
 
         return projectiles
 
-class Plane(pygame.sprite.Sprite):
-
-
 class Projectile(pygame.sprite.Sprite):
     def __init__(self, x, y, angle_degrees, piercing=0, explosive=0):
         super().__init__()
