@@ -1,7 +1,11 @@
 import pygame
 import sys
 import random
-from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle
+
+from macholib.mach_o import source_version_command
+
+# Ensure AirstrikeEvent is imported from player.py
+from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle, AirstrikeEvent
 
 # --- Settings ---
 WIDTH, HEIGHT = 800, 600
@@ -23,8 +27,8 @@ font = pygame.font.SysFont(None, 36)
 pause_font = pygame.font.SysFont(None, 72)
 
 # --- Difficulty Scaling ---
-ROOMS_CLEARED_TOTAL = 0
-DIFFICULTY_LEVEL = 1
+ROOMS_CLEARED_TOTAL = 0  # Global Variable
+DIFFICULTY_LEVEL = 1  # Global Variable
 BASE_ENEMIES = 3
 ENEMY_HEALTH_SCALE = 1.2
 
@@ -101,58 +105,56 @@ class Room:
 
     def create_walls_with_doors(self):
         """
-        Creates four full outer walls with a central gap, and uses a thin block
-        to fill the gap when the door is locked.
+        Creates outer walls and door blocks to seal the room.
+        Door blocks are now guaranteed to meet the permanent walls.
         """
         wall_thickness = 40
         door_width = 100
-        # NEW: Thin thickness for the temporary door barrier
-        door_block_thickness = 8
+        door_block_thickness = 10
+        door_start_h = WIDTH // 2 - door_width // 2  # 350
+        door_end_h = WIDTH // 2 + door_width // 2  # 450
+        door_start_v = HEIGHT // 2 - door_width // 2  # 250
+        door_end_v = HEIGHT // 2 + door_width // 2  # 350
 
-        # Calculate the center position of the door blocks for a clean look
-        center_thickness = wall_thickness // 2
-        door_y_offset = center_thickness - door_block_thickness // 2
-        door_x_offset = center_thickness - door_block_thickness // 2
+        # --- Permanent Base Walls (creating the door gap) ---
+        # Top Wall Segments (y=0 to y=wall_thickness)
+        self.walls.add(Wall(0, 0, door_start_h, wall_thickness))
+        self.walls.add(Wall(door_end_h, 0, WIDTH - door_end_h, wall_thickness))
 
-        # --- Create Top Wall (and its door segment) ---
-        # Top Wall (main segments)
-        self.walls.add(Wall(0, 0, WIDTH // 2 - door_width // 2, wall_thickness))
-        self.walls.add(Wall(WIDTH // 2 + door_width // 2, 0, WIDTH // 2 - door_width // 2, wall_thickness))
-        # Door block: Thin, spans the gap
-        top_door_block = Wall(WIDTH // 2 - door_width // 2, 0, door_width, door_block_thickness+15)
-        self.walls.add(top_door_block)
-        self.door_walls.add(top_door_block)
+        # Bottom Wall Segments (y=HEIGHT-wall_thickness to y=HEIGHT)
+        self.walls.add(Wall(0, HEIGHT - wall_thickness, door_start_h, wall_thickness))
+        self.walls.add(Wall(door_end_h, HEIGHT - wall_thickness, WIDTH - door_end_h, wall_thickness))
 
-        # --- Create Bottom Wall (and its door segment) ---
-        # Bottom Wall (main segments)
-        self.walls.add(Wall(0, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
-        self.walls.add(
-            Wall(WIDTH // 2 + door_width // 2, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
-        # Door block: Thin, spans the gap
-        bottom_door_block = Wall(WIDTH // 2 - door_width // 2, HEIGHT - wall_thickness + door_y_offset, door_width,
-                                 door_block_thickness + 20)
-        self.walls.add(bottom_door_block)
-        self.door_walls.add(bottom_door_block)
+        # Left Wall Segments (x=0 to x=wall_thickness)
+        self.walls.add(Wall(0, 0, wall_thickness, door_start_v))
+        self.walls.add(Wall(0, door_end_v, wall_thickness, HEIGHT - door_end_v))
 
-        # --- Create Left Wall (and its door segment) ---
-        # Left Wall (main segments)
-        self.walls.add(Wall(0, 0, wall_thickness, HEIGHT // 2 - door_width // 2))
-        self.walls.add(Wall(0, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
-        # Door block: Thin, spans the gap
-        left_door_block = Wall(door_x_offset-15, HEIGHT // 2 - door_width // 2 , door_block_thickness+15, door_width)
-        self.walls.add(left_door_block)
-        self.door_walls.add(left_door_block)
+        # Right Wall Segments (x=WIDTH-wall_thickness to x=WIDTH)
+        self.walls.add(Wall(WIDTH - wall_thickness, 0, wall_thickness, door_start_v))
+        self.walls.add(Wall(WIDTH - wall_thickness, door_end_v, wall_thickness, HEIGHT - door_end_v))
 
-        # --- Create Right Wall (and its door segment) ---
-        # Right Wall (main segments)
-        self.walls.add(Wall(WIDTH - wall_thickness, 0, wall_thickness, HEIGHT // 2 - door_width // 2))
-        self.walls.add(
-            Wall(WIDTH - wall_thickness, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
-        # Door block: Thin, spans the gap
-        right_door_block = Wall(WIDTH - wall_thickness + door_x_offset, HEIGHT // 2 - door_width // 2,
-                                door_block_thickness + 15, door_width)
-        self.walls.add(right_door_block)
-        self.door_walls.add(right_door_block)
+        # --- Door Blocks (Fill the gap when locked) ---
+        # These are thin blocks positioned directly on the screen edge to prevent escape.
+
+        # Top Door Block (x=350, y=0, w=100, h=10)
+        top_block = Wall(door_start_h, 0, door_width, door_block_thickness)
+        self.walls.add(top_block)
+        self.door_walls.add(top_block)
+
+        # Bottom Door Block (x=350, y=590, w=100, h=10)
+        bottom_block = Wall(door_start_h, HEIGHT - door_block_thickness, door_width, door_block_thickness)
+        self.walls.add(bottom_block)
+        self.door_walls.add(bottom_block)
+
+        # Left Door Block (x=0, y=250, w=10, h=100)
+        left_block = Wall(0, door_start_v, door_block_thickness, door_width)
+        self.walls.add(left_block)
+        self.door_walls.add(left_block)
+
+        # Right Door Block (x=790, y=250, w=10, h=100)
+        right_block = Wall(WIDTH - door_block_thickness, door_start_v, door_block_thickness, door_width)
+        self.walls.add(right_block)
+        self.door_walls.add(right_block)
 
     def spawn_enemies(self, player):
         num_enemies = int(BASE_ENEMIES + DIFFICULTY_LEVEL * 0.5)
@@ -170,7 +172,8 @@ class Room:
 
         # Remove all door blocks, opening the path
         for wall in list(self.door_walls):
-            wall.kill()  # Removes the wall sprite from ALL groups it belongs to (self.walls and self.door_walls)
+            # This kills the sprite, removing it from all groups (self.walls and self.door_walls)
+            wall.kill()
 
         self.doors_locked = False
 
@@ -179,6 +182,12 @@ class Room:
         DIFFICULTY_LEVEL = (ROOMS_CLEARED_TOTAL // 3) + 1
 
     def update(self, player, particle_group, projectile_group):
+        # events (like airstrike)
+        for event in list(self.events):
+            event.update(screen, player, self.enemies, particle_group)
+            if not event.active:
+                self.events.remove(event)
+
         # enemy AI
         for enemy in list(self.enemies):
             result = enemy.update(player)
@@ -192,6 +201,17 @@ class Room:
             # drop powerup chance
             if random.random() < 0.5:
                 self.powerups.add(PowerUp(WIDTH // 2, HEIGHT // 2))
+
+            # Chance to trigger an Airstrike
+            if random.random() < 0.2:
+                # AirstrikeEvent signature: (width, height, player_x, player_y, pygame_instance)
+                airstrike = AirstrikeEvent(
+                    WIDTH, HEIGHT,
+                    player.rect.centerx,
+                    player.rect.centery,
+                    pygame  # Pass the pygame module for image loading
+                )
+                self.events.append(airstrike)
 
 
 # --- Dungeon ---
@@ -229,7 +249,8 @@ def check_room_transition(player, dungeon):
     margin = 10
     px, py = player.rect.center
 
-    # Check only if doors are unlocked, relying on wall collision otherwise
+    # Transition logic only triggers if the doors are explicitly unlocked.
+    # Player movement is blocked by room.walls (which include door_walls) if locked.
     if dungeon.get_room().doors_locked:
         return
 
@@ -273,9 +294,7 @@ while True:
             if event.key == pygame.K_ESCAPE and not game_over:
                 paused = not paused
             if game_over and event.key == pygame.K_r:
-                # Reset Global Variables on Restart
-                # The 'global' keyword is omitted here because we are in the top-level script scope.
-
+                # --- FIX APPLIED HERE ---
                 ROOMS_CLEARED_TOTAL = 0
                 DIFFICULTY_LEVEL = 1
 
@@ -293,6 +312,7 @@ while True:
                 player.rect.center = (WIDTH // 2, HEIGHT // 2)
                 score = 0
                 game_over = False
+                # -------------------------
 
     if not paused and not game_over:
         keys = pygame.key.get_pressed()
@@ -374,7 +394,11 @@ while True:
             if pu.type == "health":
                 player.health = min(PLAYER_MAX_HEALTH, player.health + 2)
             elif pu.type == "multi":
-                player.multi_shot_level *= 3
+                # Additive stacking: 1 -> 3 -> 5 -> 7...
+                if player.multi_shot_level == 1:
+                    player.multi_shot_level = 3
+                else:
+                    player.multi_shot_level += 2
             elif pu.type == "speed":
                 player.speed_level += 1
             elif pu.type == "rapid":
@@ -403,7 +427,11 @@ while True:
     particle_group.draw(screen)
     room.powerups.draw(screen)
 
-    # HUD
+    # Draw Airstrike Events (if active)
+    for event in room.events:
+        event.update(screen, player, room.enemies, particle_group)
+
+        # HUD
     pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (10, 10, 150, 20))
     health_width = int(150 * (player.health / PLAYER_MAX_HEALTH))
     pygame.draw.rect(screen, HEALTH_BAR_COLOR, (10, 10, health_width, 20))

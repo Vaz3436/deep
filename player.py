@@ -80,7 +80,7 @@ class Player(pygame.sprite.Sprite):
         """
         Returns a list of Projectile objects.
         direction: 'up','down','left','right'
-        multi_shot_level stores the pellet count (1, 3, 9, ...).
+        multi_shot_level stores the pellet count (1, 3, 5, 7, ...).
         """
         self.last_shot_time = pygame.time.get_ticks()
 
@@ -237,6 +237,116 @@ class GameEvent:
 
     def update(self, screen, player, enemy_group, particle_group):
         raise NotImplementedError("Must be implemented by subclass")
+
+
+class AirstrikeEvent(GameEvent):
+    # Takes pygame as an argument for image loading (passed from test.py)
+    def __init__(self, width, height, player_x, player_y, pygame_instance, duration=180):
+        super().__init__()
+        self.width = width
+        self.height = height
+        self.duration = duration  # total frames
+        self.frame = 0
+
+        # --- AIRSTRIKE FLIGHT PATH LOGIC ---
+        # Fixed diagonal path (Top-Left to Bottom-Right)
+        self.dx = 1.0
+        self.dy = 0.5
+        magnitude = math.sqrt(self.dx ** 2 + self.dy ** 2)
+        self.dx /= magnitude
+        self.dy /= magnitude
+
+        # Start position off-screen top-left
+        self.start_x = -150
+        self.start_y = 50
+        self.speed = 10  # pixels per frame
+        # -----------------------------------
+
+        # Bomb properties
+        self.bomb_radius = 30
+        self.bomb_interval = 50  # drop every N pixels
+        self.bomb_timer = 0
+        self.bombs = []
+
+        # --- IMAGE LOADING WITH FALLBACK (Placeholder) ---
+        try:
+            # Note: This will likely fail if no 'plane.png' exists, but that's expected
+            self.image = pygame_instance.image.load("plane.png").convert_alpha()
+            # Scale it down to a reasonable size
+            self.image = pygame_instance.transform.scale(self.image, (100, 50))
+        except pygame_instance.error:
+            # Placeholder surface if image is missing
+            self.image = pygame_instance.Surface((100, 50))
+            self.image.fill((100, 100, 100))  # Grey placeholder
+            # print("Warning: plane.png not found. Using placeholder for Airstrike.")
+
+    def update(self, screen, player, enemy_group, particle_group):
+        if self.frame >= self.duration:
+            self.active = False
+            return
+
+        self.frame += 1
+
+        # Plane current position
+        x = self.start_x + self.frame * self.speed * self.dx
+        y = self.start_y + self.frame * self.speed * self.dy
+
+        screen.blit(self.image, (int(x), int(y)))  # Must cast to int
+
+        # Drop bombs at intervals based on travel distance
+        self.bomb_timer += self.speed
+        if self.bomb_timer >= self.bomb_interval:
+            self.bomb_timer = 0
+            self.bombs.append({
+                "x": x,
+                "y": y,
+                "r": self.bomb_radius,
+                "timer": 100  # Explosion delay
+            })
+
+        # Update bombs
+        for bomb in list(self.bombs):
+            bomb["timer"] -= 1
+
+            # Draw falling bomb
+            pygame.draw.circle(
+                screen,
+                (255, 200, 0),  # Yellow-orange
+                (int(bomb["x"]), int(bomb["y"])),
+                6
+            )
+
+            # Explosion
+            if bomb["timer"] <= 0:
+                bx, by = bomb["x"], bomb["y"]
+
+                # Explosion visual (drawn for one frame)
+                pygame.draw.circle(
+                    screen,
+                    (255, 100, 0),  # Orange-red
+                    (int(bx), int(by)),
+                    bomb["r"],
+                    2
+                )
+
+                # Add particles
+                for _ in range(10):
+                    particle_group.add(Particle(int(bx), int(by)))
+
+                # Damage enemies
+                for enemy in list(enemy_group):
+                    ex, ey = enemy.rect.center
+                    if ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5 <= bomb["r"]:
+                        if enemy.take_hit():
+                            enemy.kill()
+
+                # Damage player
+                px, py = player.rect.center
+                if ((bx - px) ** 2 + (by - py) ** 2) ** 0.5 <= bomb["r"]:
+                    player.health -= 1
+
+                # Remove bomb after explosion
+                self.bombs.remove(bomb)
 
 
 class ShooterEnemy(Enemy):
