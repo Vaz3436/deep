@@ -20,7 +20,6 @@ YELLOW = (255, 255, 0)
 STUCK_ARROW_COLOR = (180, 180, 60)
 
 
-
 class Player(pygame.sprite.Sprite):
     PLAYER_MAX_HEALTH = 5
 
@@ -38,14 +37,13 @@ class Player(pygame.sprite.Sprite):
         self.health = self.PLAYER_MAX_HEALTH
 
         # MULTISHOT: pellet count; start at 1 (single pellet)
-        # Powerup pickup should multiply this by 3: 1 -> 3 -> 9 -> ...
         self.multi_shot_level = 1
 
         # New stacked power-up levels (integers)
-        self.speed_level = 0     # +1 movement speed per stack
-        self.rapid_level = 0     # each stack multiplies cooldown by 0.8
+        self.speed_level = 0  # +1 movement speed per stack
+        self.rapid_level = 0  # each stack multiplies cooldown by 0.8
         self.piercing_level = 0  # +1 extra enemy hit per stack
-        self.explosive_level = 0 # explosive radius/damage per stack
+        self.explosive_level = 0  # explosive radius/damage per stack
 
     def update(self, walls, keys):
         dx, dy = 0, 0
@@ -97,7 +95,7 @@ class Player(pygame.sprite.Sprite):
 
         num_shots = int(self.multi_shot_level)
         projectiles = []
-        cone_degrees = 30 + (self.multi_shot_level*5)  # tight shotgun cone
+        cone_degrees = 30 + (self.multi_shot_level * 5)  # tight shotgun cone
 
         if num_shots <= 1:
             projectiles.append(Projectile(
@@ -115,6 +113,7 @@ class Player(pygame.sprite.Sprite):
                 ))
 
         return projectiles
+
 
 class Projectile(pygame.sprite.Sprite):
     def __init__(self, x, y, angle_degrees, piercing=0, explosive=0):
@@ -147,7 +146,6 @@ class Projectile(pygame.sprite.Sprite):
         self.age = 0
         self.fly_time = 45  # explosive bolts fly a bit longer
 
-
     def update(self, walls=None):
         self.age += 1
         self.pos_x += self.dx
@@ -162,6 +160,7 @@ class Projectile(pygame.sprite.Sprite):
 
         if self.age >= self.fly_time:
             self.kill()
+
 
 class Particle(pygame.sprite.Sprite):
     def __init__(self, x, y, color=(255, 200, 100)):
@@ -181,7 +180,7 @@ class Particle(pygame.sprite.Sprite):
             self.kill()
 
 
-# --- Enemies (unchanged from your original) ---
+# --- Enemies ---
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
@@ -190,7 +189,9 @@ class Enemy(pygame.sprite.Sprite):
         self.flash_color = (255, 255, 0)
         self.image.fill(self.original_color)
         self.rect = self.image.get_rect(center=(x, y))
-        self.health = 2
+
+        self.max_health = 2
+        self.health = self.max_health
         self.flash_timer = 0
 
     def update(self, player):
@@ -212,8 +213,25 @@ class Enemy(pygame.sprite.Sprite):
         self.flash_timer = 15
         return self.health <= 0
 
+    def draw_health_bar(self, screen):
+        # Health bar dimensions and position
+        bar_width = self.rect.width
+        bar_height = 5
+        bar_x = self.rect.x
+        bar_y = self.rect.y - 10
+
+        # Background (empty health)
+        pygame.draw.rect(screen, (100, 0, 0), (bar_x, bar_y, bar_width, bar_height))
+
+        # Current health
+        health_ratio = self.health / self.max_health
+        current_width = int(bar_width * health_ratio)
+        pygame.draw.rect(screen, (0, 255, 0), (bar_x, bar_y, current_width, bar_height))
+
+
 class GameEvent:
     """Base class for time-limited game events."""
+
     def __init__(self):
         self.active = True
 
@@ -221,112 +239,14 @@ class GameEvent:
         raise NotImplementedError("Must be implemented by subclass")
 
 
-class AirstrikeEvent(GameEvent):
-    def __init__(self, width, height, player_x, player_y, pygame_instance, duration=180):
-        super().__init__()
-        self.width = width
-        self.height = height
-        self.duration = duration  # total frames
-        self.frame = 0
-
-        # Calculate direction vector toward a random offset from player
-        deltax = player_x + 200
-        deltay = player_y - 300
-        magnitude = math.sqrt(deltax ** 2 + deltay ** 2)
-        self.dx = deltax / magnitude
-        self.dy = deltay / magnitude
-
-        # Start position off-screen
-        self.start_x = -200
-        self.start_y = 300
-        self.speed = 12  # pixels per frame
-
-        # Bomb properties
-        self.bomb_radius = 30
-        self.bomb_interval = 50  # drop every N pixels
-        self.bomb_timer = 0
-        self.bombs = []
-        self.last_pos = (self.start_x, self.start_y)
-        self.image = pygame_instance.image.load("plane.png").convert_alpha()
-
-        #self.image = pygame_instance.image.load("./plane.png").convert_alpha()
-
-
-
-    def update(self, screen, player, enemy_group, particle_group):
-        if self.frame >= self.duration:
-            self.active = False
-            return
-
-        self.frame += 1
-
-        # Plane current position
-        x = self.start_x + self.frame * self.speed * self.dx
-        y = self.start_y + self.frame * self.speed * self.dy
-
-        screen.blit(self.image, (x, y))
-        print((x, y))
-        # Drop bombs at intervals based on travel distance
-        self.bomb_timer += self.speed
-        if self.bomb_timer >= self.bomb_interval:
-            self.bomb_timer = 0
-            self.bombs.append({
-                "x": x,
-                "y": y,
-                "r": self.bomb_radius,
-                "timer": 100
-            })
-
-        # Update bombs
-        for bomb in list(self.bombs):
-            bomb["timer"] -= 1
-
-            # Draw falling bomb
-            pygame.draw.circle(
-                screen,
-                (255, 200, 0),  # Yellow-orange
-                (int(bomb["x"]), int(bomb["y"])),
-                6
-            )
-
-            # Explosion
-            if bomb["timer"] <= 0:
-                bx, by = bomb["x"], bomb["y"]
-
-                # Explosion visual
-                pygame.draw.circle(
-                    screen,
-                    (255, 100, 0),  # Orange-red
-                    (int(bx), int(by)),
-                    bomb["r"],
-                    2
-                )
-
-                # Add particles
-                for _ in range(10):
-                    particle_group.add(Particle(int(bx), int(by)))
-
-                # Damage enemies
-                for enemy in list(enemy_group):
-                    ex, ey = enemy.rect.center
-                    if ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5 <= bomb["r"]:
-                        if enemy.take_hit():
-                            enemy.kill()
-
-                # Damage player
-                px, py = player.rect.center
-                if ((bx - px) ** 2 + (by - py) ** 2) ** 0.5 <= bomb["r"]:
-                    player.health -= 1
-
-                # Remove bomb after explosion
-                self.bombs.remove(bomb)
-
 class ShooterEnemy(Enemy):
     def __init__(self, x, y):
         super().__init__(x, y)
         self.image.fill((200, 50, 200))
         self.shoot_cooldown = 90
         self.timer = 0
+        self.max_health = 3
+        self.health = self.max_health
 
     def update(self, player):
         super().update(player)
@@ -344,6 +264,8 @@ class JumperEnemy(Enemy):
         self.jump_cooldown = random.randint(120, 180)
         self.timer = 0
         self.target = None
+        self.max_health = 2
+        self.health = self.max_health
 
     def update(self, player):
         if self.flash_timer > 0:
@@ -367,8 +289,6 @@ class JumperEnemy(Enemy):
             if abs(dx) < 10 and abs(dy) < 10:
                 self.target = None
         return None
-
-
 
 
 class EnemyProjectile(pygame.sprite.Sprite):

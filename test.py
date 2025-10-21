@@ -1,7 +1,7 @@
 import pygame
 import sys
 import random
-from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, AirstrikeEvent, Particle
+from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle
 
 # --- Settings ---
 WIDTH, HEIGHT = 800, 600
@@ -22,6 +22,13 @@ clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 36)
 pause_font = pygame.font.SysFont(None, 72)
 
+# --- Difficulty Scaling ---
+ROOMS_CLEARED_TOTAL = 0
+DIFFICULTY_LEVEL = 1
+BASE_ENEMIES = 3
+ENEMY_HEALTH_SCALE = 1.2
+
+
 # --- Wall Class ---
 class Wall(pygame.sprite.Sprite):
     def __init__(self, x, y, w, h):
@@ -29,6 +36,7 @@ class Wall(pygame.sprite.Sprite):
         self.image = pygame.Surface((w, h))
         self.image.fill(DARK_GREY)
         self.rect = self.image.get_rect(topleft=(x, y))
+
 
 # --- PowerUp ---
 class PowerUp(pygame.sprite.Sprite):
@@ -55,6 +63,7 @@ class PowerUp(pygame.sprite.Sprite):
         if self.timer <= 0:
             self.kill()
 
+
 # --- Enemy Spawning ---
 def spawn_enemy_type():
     r = random.random()
@@ -65,6 +74,7 @@ def spawn_enemy_type():
     else:
         return JumperEnemy
 
+
 def spawn_enemy_far_from_player(player):
     for _ in range(200):
         x = random.randint(150, WIDTH - 150)
@@ -73,6 +83,7 @@ def spawn_enemy_far_from_player(player):
         if dist > 200:
             return spawn_enemy_type()(x, y)
     return spawn_enemy_type()(150, 150)
+
 
 # --- Room ---
 class Room:
@@ -83,42 +94,91 @@ class Room:
         self.enemy_projectiles = pygame.sprite.Group()
         self.events = []
         self.walls = pygame.sprite.Group()
+        self.door_walls = pygame.sprite.Group()  # Group for the door blocks
         self.cleared = False
         self.doors_locked = True
         self.create_walls_with_doors()
 
     def create_walls_with_doors(self):
-        """Walls with door gaps in each direction"""
+        """
+        Creates four full outer walls with a central gap, and uses a thin block
+        to fill the gap when the door is locked.
+        """
         wall_thickness = 40
         door_width = 100
-        # Top
+        # NEW: Thin thickness for the temporary door barrier
+        door_block_thickness = 8
+
+        # Calculate the center position of the door blocks for a clean look
+        center_thickness = wall_thickness // 2
+        door_y_offset = center_thickness - door_block_thickness // 2
+        door_x_offset = center_thickness - door_block_thickness // 2
+
+        # --- Create Top Wall (and its door segment) ---
+        # Top Wall (main segments)
         self.walls.add(Wall(0, 0, WIDTH // 2 - door_width // 2, wall_thickness))
         self.walls.add(Wall(WIDTH // 2 + door_width // 2, 0, WIDTH // 2 - door_width // 2, wall_thickness))
-        # Bottom
+        # Door block: Thin, spans the gap
+        top_door_block = Wall(WIDTH // 2 - door_width // 2, 0, door_width, door_block_thickness+15)
+        self.walls.add(top_door_block)
+        self.door_walls.add(top_door_block)
+
+        # --- Create Bottom Wall (and its door segment) ---
+        # Bottom Wall (main segments)
         self.walls.add(Wall(0, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
-        self.walls.add(Wall(WIDTH // 2 + door_width // 2, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
-        # Left
+        self.walls.add(
+            Wall(WIDTH // 2 + door_width // 2, HEIGHT - wall_thickness, WIDTH // 2 - door_width // 2, wall_thickness))
+        # Door block: Thin, spans the gap
+        bottom_door_block = Wall(WIDTH // 2 - door_width // 2, HEIGHT - wall_thickness + door_y_offset, door_width,
+                                 door_block_thickness + 20)
+        self.walls.add(bottom_door_block)
+        self.door_walls.add(bottom_door_block)
+
+        # --- Create Left Wall (and its door segment) ---
+        # Left Wall (main segments)
         self.walls.add(Wall(0, 0, wall_thickness, HEIGHT // 2 - door_width // 2))
         self.walls.add(Wall(0, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
-        # Right
+        # Door block: Thin, spans the gap
+        left_door_block = Wall(door_x_offset-15, HEIGHT // 2 - door_width // 2 , door_block_thickness+15, door_width)
+        self.walls.add(left_door_block)
+        self.door_walls.add(left_door_block)
+
+        # --- Create Right Wall (and its door segment) ---
+        # Right Wall (main segments)
         self.walls.add(Wall(WIDTH - wall_thickness, 0, wall_thickness, HEIGHT // 2 - door_width // 2))
-        self.walls.add(Wall(WIDTH - wall_thickness, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
+        self.walls.add(
+            Wall(WIDTH - wall_thickness, HEIGHT // 2 + door_width // 2, wall_thickness, HEIGHT // 2 - door_width // 2))
+        # Door block: Thin, spans the gap
+        right_door_block = Wall(WIDTH - wall_thickness + door_x_offset, HEIGHT // 2 - door_width // 2,
+                                door_block_thickness + 15, door_width)
+        self.walls.add(right_door_block)
+        self.door_walls.add(right_door_block)
 
     def spawn_enemies(self, player):
-        for _ in range(random.randint(2, 5)):
+        num_enemies = int(BASE_ENEMIES + DIFFICULTY_LEVEL * 0.5)
+
+        for _ in range(random.randint(num_enemies, num_enemies + 2)):
             e = spawn_enemy_far_from_player(player)
+            # Scale enemy health
+            e.max_health = int(e.max_health * (ENEMY_HEALTH_SCALE ** (DIFFICULTY_LEVEL - 1)))
+            e.health = e.max_health
             self.enemies.add(e)
 
     def unlock_doors(self):
+        # REQUIRED to modify top-level variables
+        global ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL
+
+        # Remove all door blocks, opening the path
+        for wall in list(self.door_walls):
+            wall.kill()  # Removes the wall sprite from ALL groups it belongs to (self.walls and self.door_walls)
+
         self.doors_locked = False
 
-    def update(self, player, particle_group, projectile_group):
-        # events (like airstrike)
-        for event in list(self.events):
-            event.update(screen, player, self.enemies, particle_group)
-            if not event.active:
-                self.events.remove(event)
+        # Increase cleared room count and scale difficulty
+        ROOMS_CLEARED_TOTAL += 1
+        DIFFICULTY_LEVEL = (ROOMS_CLEARED_TOTAL // 3) + 1
 
+    def update(self, player, particle_group, projectile_group):
         # enemy AI
         for enemy in list(self.enemies):
             result = enemy.update(player)
@@ -131,7 +191,8 @@ class Room:
             self.unlock_doors()
             # drop powerup chance
             if random.random() < 0.5:
-                self.powerups.add(PowerUp(WIDTH//2, HEIGHT//2))
+                self.powerups.add(PowerUp(WIDTH // 2, HEIGHT // 2))
+
 
 # --- Dungeon ---
 class Dungeon:
@@ -143,7 +204,7 @@ class Dungeon:
     def load_room(self, x, y):
         if (x, y) not in self.rooms:
             room = Room(x, y)
-            room.spawn_enemies(player)  # 👈 spawn enemies right away when created
+            room.spawn_enemies(player)
             self.rooms[(x, y)] = room
         self.current = (x, y)
 
@@ -152,44 +213,51 @@ class Dungeon:
 
     def move(self, direction):
         x, y = self.current
-        if direction == "up": y -= 1
-        elif direction == "down": y += 1
-        elif direction == "left": x -= 1
-        elif direction == "right": x += 1
+        if direction == "up":
+            y -= 1
+        elif direction == "down":
+            y += 1
+        elif direction == "left":
+            x -= 1
+        elif direction == "right":
+            x += 1
         self.load_room(x, y)
+
 
 # --- Transition Check ---
 def check_room_transition(player, dungeon):
     margin = 10
     px, py = player.rect.center
+
+    # Check only if doors are unlocked, relying on wall collision otherwise
+    if dungeon.get_room().doors_locked:
+        return
+
     if py < margin:  # top
-        if not dungeon.get_room().doors_locked:
-            dungeon.move("up")
-            player.pos_y = HEIGHT - 100
+        dungeon.move("up")
+        player.pos_y = HEIGHT - 100
     elif py > HEIGHT - margin:
-        if not dungeon.get_room().doors_locked:
-            dungeon.move("down")
-            player.pos_y = 100
+        dungeon.move("down")
+        player.pos_y = 100
     elif px < margin:
-        if not dungeon.get_room().doors_locked:
-            dungeon.move("left")
-            player.pos_x = WIDTH - 120
+        dungeon.move("left")
+        player.pos_x = WIDTH - 120
     elif px > WIDTH - margin:
-        if not dungeon.get_room().doors_locked:
-            dungeon.move("right")
-            player.pos_x = 120
+        dungeon.move("right")
+        player.pos_x = 120
 
     player.rect.centerx = int(player.pos_x)
     player.rect.centery = int(player.pos_y)
 
+
 # --- Create Player and Groups ---
 player = Player(WIDTH // 2, HEIGHT // 2)
+PLAYER_MAX_HEALTH = player.PLAYER_MAX_HEALTH  # For clean HUD access
 player_group = pygame.sprite.GroupSingle(player)
 projectile_group = pygame.sprite.Group()
 particle_group = pygame.sprite.Group()
 
 dungeon = Dungeon()
-dungeon.get_room().spawn_enemies(player)
 
 score = 0
 paused = False
@@ -205,8 +273,14 @@ while True:
             if event.key == pygame.K_ESCAPE and not game_over:
                 paused = not paused
             if game_over and event.key == pygame.K_r:
+                # Reset Global Variables on Restart
+                # The 'global' keyword is omitted here because we are in the top-level script scope.
+
+                ROOMS_CLEARED_TOTAL = 0
+                DIFFICULTY_LEVEL = 1
+
                 dungeon = Dungeon()
-                player.health = player.PLAYER_MAX_HEALTH
+                player.health = PLAYER_MAX_HEALTH
                 player.multi_shot_level = 1
                 player.speed_level = 0
                 player.rapid_level = 0
@@ -215,9 +289,8 @@ while True:
                 player.last_shot_time = 0
                 projectile_group.empty()
                 particle_group.empty()
-                dungeon.get_room().spawn_enemies(player)
-                player.pos_x, player.pos_y = WIDTH//2, HEIGHT//2
-                player.rect.center = (WIDTH//2, HEIGHT//2)
+                player.pos_x, player.pos_y = WIDTH // 2, HEIGHT // 2
+                player.rect.center = (WIDTH // 2, HEIGHT // 2)
                 score = 0
                 game_over = False
 
@@ -227,10 +300,14 @@ while True:
         # Player shooting
         if player.can_attack():
             direction = None
-            if keys[pygame.K_UP]: direction = "up"
-            elif keys[pygame.K_DOWN]: direction = "down"
-            elif keys[pygame.K_LEFT]: direction = "left"
-            elif keys[pygame.K_RIGHT]: direction = "right"
+            if keys[pygame.K_UP]:
+                direction = "up"
+            elif keys[pygame.K_DOWN]:
+                direction = "down"
+            elif keys[pygame.K_LEFT]:
+                direction = "left"
+            elif keys[pygame.K_RIGHT]:
+                direction = "right"
             if direction:
                 for p in player.attack(direction):
                     projectile_group.add(p)
@@ -251,7 +328,7 @@ while True:
                 player.health -= 1
                 dx = player.rect.centerx - enemy.rect.centerx
                 dy = player.rect.centery - enemy.rect.centery
-                dist = max(1, (dx**2+dy**2)**0.5)
+                dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
                 player.pos_x += 20 * dx / dist
                 player.pos_y += 20 * dy / dist
 
@@ -264,7 +341,7 @@ while True:
                     radius = 50 + proj.explosive * 20
                     for enemy in list(room.enemies):
                         ex, ey = enemy.rect.center
-                        if ((ex - cx)**2 + (ey - cy)**2)**0.5 <= radius:
+                        if ((ex - cx) ** 2 + (ey - cy) ** 2) ** 0.5 <= radius:
                             for _ in range(1 + proj.explosive):
                                 if enemy.take_hit():
                                     enemy.kill()
@@ -295,7 +372,7 @@ while True:
         collected = pygame.sprite.spritecollide(player, room.powerups, True)
         for pu in collected:
             if pu.type == "health":
-                player.health = min(player.PLAYER_MAX_HEALTH, player.health + 2)
+                player.health = min(PLAYER_MAX_HEALTH, player.health + 2)
             elif pu.type == "multi":
                 player.multi_shot_level *= 3
             elif pu.type == "speed":
@@ -317,19 +394,26 @@ while True:
     player_group.draw(screen)
     projectile_group.draw(screen)
     room.enemies.draw(screen)
+
+    # Draw enemy health bars (Fixed to safely iterate over the group's current sprites)
+    for enemy in room.enemies.sprites():
+        enemy.draw_health_bar(screen)
+
     room.enemy_projectiles.draw(screen)
     particle_group.draw(screen)
     room.powerups.draw(screen)
 
     # HUD
     pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (10, 10, 150, 20))
-    health_width = int(150 * (player.health / player.PLAYER_MAX_HEALTH))
+    health_width = int(150 * (player.health / PLAYER_MAX_HEALTH))
     pygame.draw.rect(screen, HEALTH_BAR_COLOR, (10, 10, health_width, 20))
 
     score_text = font.render(f"Score: {score}", True, (0, 0, 0))
     room_text = font.render(f"Room: {room.coords}", True, (0, 0, 0))
+    difficulty_text = font.render(f"Level: {DIFFICULTY_LEVEL}", True, (0, 0, 0))
     screen.blit(score_text, (10, 40))
     screen.blit(room_text, (10, 70))
+    screen.blit(difficulty_text, (10, 100))
 
     if paused and not game_over:
         pause_text = pause_font.render("PAUSED", True, WHITE)
