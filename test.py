@@ -2,8 +2,9 @@ import pygame
 import sys
 import random
 
-# Ensure AirstrikeEvent is imported from player.py
-from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle, AirstrikeEvent
+# Import the new BossEnemy class
+from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle, AirstrikeEvent, \
+    BossEnemy
 
 # --- Settings ---
 WIDTH, HEIGHT = 800, 600
@@ -29,6 +30,7 @@ ROOMS_CLEARED_TOTAL = 0  # Global Variable
 DIFFICULTY_LEVEL = 1  # Global Variable
 BASE_ENEMIES = 3
 ENEMY_HEALTH_SCALE = 1.2
+BOSS_INTERVAL = 2  # Rooms cleared before a boss appears (every 6 or 7 rooms)
 
 
 # --- Wall Class ---
@@ -99,6 +101,7 @@ class Room:
         self.door_walls = pygame.sprite.Group()  # Group for the door blocks
         self.cleared = False
         self.doors_locked = True
+        self.is_boss_room = False
         self.create_walls_with_doors()
 
     def create_walls_with_doors(self):
@@ -155,14 +158,24 @@ class Room:
         self.door_walls.add(right_block)
 
     def spawn_enemies(self, player):
-        num_enemies = int(BASE_ENEMIES + DIFFICULTY_LEVEL * 0.5)
+        # Determine if this room should spawn a boss
+        if ROOMS_CLEARED_TOTAL > 0 and (ROOMS_CLEARED_TOTAL + 1) % BOSS_INTERVAL == 0:
+            self.is_boss_room = True
 
-        for _ in range(random.randint(num_enemies, num_enemies + 2)):
-            e = spawn_enemy_far_from_player(player)
-            # Scale enemy health
-            e.max_health = int(e.max_health * (ENEMY_HEALTH_SCALE ** (DIFFICULTY_LEVEL - 1)))
-            e.health = e.max_health
-            self.enemies.add(e)
+            # Spawn a single boss in the center
+            boss = BossEnemy(WIDTH // 2, HEIGHT // 2, DIFFICULTY_LEVEL)
+            self.enemies.add(boss)
+            print(f"BOSS SPAWNED: Health {boss.max_health}")
+        else:
+            # Spawn regular enemies
+            num_enemies = int(BASE_ENEMIES + DIFFICULTY_LEVEL * 0.5)
+
+            for _ in range(random.randint(num_enemies, num_enemies + 2)):
+                e = spawn_enemy_far_from_player(player)
+                # Scale enemy health
+                e.max_health = int(e.max_health * (ENEMY_HEALTH_SCALE ** (DIFFICULTY_LEVEL - 1)))
+                e.health = e.max_health
+                self.enemies.add(e)
 
     def unlock_doors(self):
         # REQUIRED to modify top-level variables
@@ -181,29 +194,37 @@ class Room:
 
     def update(self, player, particle_group, projectile_group):
         # events (like airstrike)
-        # Note: AirstrikeEvent is called here. If it kills an enemy, the main loop's enemy cleanup
-        # is responsible for score/particle generation.
         for event in list(self.events):
             event.update(screen, player, self.enemies, particle_group)
             if not event.active:
                 self.events.remove(event)
 
         # enemy AI
+        # This is where the fix is applied: handling lists of projectiles from the boss
         for enemy in list(self.enemies):
             result = enemy.update(player)
-            if isinstance(result, pygame.sprite.Sprite):
-                self.enemy_projectiles.add(result)
+            if result is not None:
+                if isinstance(result, pygame.sprite.Sprite):
+                    # For regular ShooterEnemy
+                    self.enemy_projectiles.add(result)
+                elif isinstance(result, list):
+                    # For BossEnemy which returns a list of projectiles
+                    self.enemy_projectiles.add(*result)  # The * unpacks the list
 
         # check clear
         if not self.cleared and not self.enemies:
             self.cleared = True
             self.unlock_doors()
             # drop powerup chance
-            if random.random() < 0.5:
+            if random.random() < 0.75 or self.is_boss_room:  # Higher chance after a boss
                 self.powerups.add(PowerUp(WIDTH // 2, HEIGHT // 2))
 
+            # If it was a boss room, drop an extra guaranteed powerup
+            if self.is_boss_room:
+                self.powerups.add(PowerUp(WIDTH // 2 + 50, HEIGHT // 2 + 50))
+
             # Chance to trigger an Airstrike
-            if random.random() < 1:
+            if random.random() < 0.2:
                 # AirstrikeEvent signature: (width, height, player_x, player_y, pygame_instance)
                 airstrike = AirstrikeEvent(
                     WIDTH, HEIGHT,
@@ -294,7 +315,7 @@ while True:
             if event.key == pygame.K_ESCAPE and not game_over:
                 paused = not paused
             if game_over and event.key == pygame.K_r:
-                # --- FIX APPLIED HERE ---
+                # --- Restart Logic ---
                 ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL  # THE NECESSARY GLOBAL KEYWORDS
 
                 ROOMS_CLEARED_TOTAL = 0
@@ -365,7 +386,6 @@ while True:
                         ex, ey = enemy.rect.center
                         if ((ex - cx) ** 2 + (ey - cy) ** 2) ** 0.5 <= radius:
                             for _ in range(1 + proj.explosive):
-                                # Check if enemy died from the explosion damage
                                 if enemy.take_hit():
                                     enemy.kill()
                                     score += 1
@@ -434,7 +454,6 @@ while True:
     for event in room.events:
         event.update(screen, player, room.enemies, particle_group)
 
-
     # HUD
     pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (10, 10, 150, 20))
     health_width = int(150 * (player.health / PLAYER_MAX_HEALTH))
@@ -443,6 +462,13 @@ while True:
     score_text = font.render(f"Score: {score}", True, (0, 0, 0))
     room_text = font.render(f"Room: {room.coords}", True, (0, 0, 0))
     difficulty_text = font.render(f"Level: {DIFFICULTY_LEVEL}", True, (0, 0, 0))
+
+    # Boss health warning
+    if room.is_boss_room and room.enemies:
+        boss = room.enemies.sprites()[0]
+        boss_health_text = font.render(f"BOSS HP: {boss.health}/{boss.max_health}", True, (255, 0, 0))
+        screen.blit(boss_health_text, (WIDTH - boss_health_text.get_width() - 10, 10))
+
     screen.blit(score_text, (10, 40))
     screen.blit(room_text, (10, 70))
     screen.blit(difficulty_text, (10, 100))
