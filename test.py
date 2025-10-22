@@ -2,8 +2,6 @@ import pygame
 import sys
 import random
 
-from macholib.mach_o import source_version_command
-
 # Ensure AirstrikeEvent is imported from player.py
 from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle, AirstrikeEvent
 
@@ -183,6 +181,8 @@ class Room:
 
     def update(self, player, particle_group, projectile_group):
         # events (like airstrike)
+        # Note: AirstrikeEvent is called here. If it kills an enemy, the main loop's enemy cleanup
+        # is responsible for score/particle generation.
         for event in list(self.events):
             event.update(screen, player, self.enemies, particle_group)
             if not event.active:
@@ -203,7 +203,7 @@ class Room:
                 self.powerups.add(PowerUp(WIDTH // 2, HEIGHT // 2))
 
             # Chance to trigger an Airstrike
-            if random.random() < 0.2:
+            if random.random() < 1:
                 # AirstrikeEvent signature: (width, height, player_x, player_y, pygame_instance)
                 airstrike = AirstrikeEvent(
                     WIDTH, HEIGHT,
@@ -295,6 +295,8 @@ while True:
                 paused = not paused
             if game_over and event.key == pygame.K_r:
                 # --- FIX APPLIED HERE ---
+                ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL  # THE NECESSARY GLOBAL KEYWORDS
+
                 ROOMS_CLEARED_TOTAL = 0
                 DIFFICULTY_LEVEL = 1
 
@@ -363,6 +365,7 @@ while True:
                         ex, ey = enemy.rect.center
                         if ((ex - cx) ** 2 + (ey - cy) ** 2) ** 0.5 <= radius:
                             for _ in range(1 + proj.explosive):
+                                # Check if enemy died from the explosion damage
                                 if enemy.take_hit():
                                     enemy.kill()
                                     score += 1
@@ -431,7 +434,8 @@ while True:
     for event in room.events:
         event.update(screen, player, room.enemies, particle_group)
 
-        # HUD
+
+    # HUD
     pygame.draw.rect(screen, HEALTH_BAR_BG_COLOR, (10, 10, 150, 20))
     health_width = int(150 * (player.health / PLAYER_MAX_HEALTH))
     pygame.draw.rect(screen, HEALTH_BAR_COLOR, (10, 10, health_width, 20))

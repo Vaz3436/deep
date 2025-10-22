@@ -18,6 +18,7 @@ ENEMY_SPEED = 2
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 STUCK_ARROW_COLOR = (180, 180, 60)
+WARNING_LINE_COLOR = (255, 0, 0)  # New color for the dotted line
 
 
 class Player(pygame.sprite.Sprite):
@@ -241,44 +242,100 @@ class GameEvent:
 
 class AirstrikeEvent(GameEvent):
     # Takes pygame as an argument for image loading (passed from test.py)
-    def __init__(self, width, height, player_x, player_y, pygame_instance, duration=180):
+    def __init__(self, width, height, player_x, player_y, pygame_instance, duration=300):
         super().__init__()
         self.width = width
         self.height = height
-        self.duration = duration  # total frames
+        self.duration = duration  # Total frames for the event
+        self.warning_frames = 60  # 1 second warning
         self.frame = 0
+        self.started_flight = False
 
-        # --- AIRSTRIKE FLIGHT PATH LOGIC ---
-        # Fixed diagonal path (Top-Left to Bottom-Right)
-        self.dx = 1.0
-        self.dy = 0.5
-        magnitude = math.sqrt(self.dx ** 2 + self.dy ** 2)
-        self.dx /= magnitude
-        self.dy /= magnitude
+        # --- PATH CALCULATION (Targeting Player) ---
+        # The plane starts far off the top-left, targeting the player's initial position
 
-        # Start position off-screen top-left
+        # Start point (fixed off-screen top-left)
         self.start_x = -150
-        self.start_y = 50
+        self.start_y = -50
+
+        # Target point (where player was when event started)
+        self.target_x = player_x
+        self.target_y = player_y
+
+        # Determine the normalized direction vector and angle
+        dx = self.target_x - self.start_x
+        dy = self.target_y - self.start_y
+        magnitude = math.sqrt(dx ** 2 + dy ** 2)
+
+        # Normalize direction (ensure magnitude > 0 to avoid division by zero)
+        if magnitude > 0:
+            self.dx = dx / magnitude
+            self.dy = dy / magnitude
+        else:
+            self.dx = 1.0
+            self.dy = 0.0  # Default to moving right if magnitude is zero
+
         self.speed = 10  # pixels per frame
-        # -----------------------------------
+
+        # Calculate rotation angle once at initialization
+        self.angle_degrees = math.degrees(math.atan2(self.dy, self.dx))
+
+        # Calculate the end point (to draw the path line)
+        # We project the vector far past the screen boundary
+        projection_factor = max(self.width, self.height) * 1.5
+        self.end_x = self.start_x + self.dx * projection_factor
+        self.end_y = self.start_y + self.dy * projection_factor
+
+        # --- IMAGE LOADING WITH ROTATION ---
+        try:
+            self.base_image = pygame_instance.image.load("plane.png").convert_alpha()
+            self.base_image = pygame_instance.transform.scale(self.base_image, (100, 50))
+        except pygame_instance.error:
+            self.base_image = pygame_instance.Surface((100, 50))
+            self.base_image.fill((100, 100, 100))
+
+        # Apply the rotation calculated above
+        # Pygame rotates counter-clockwise, so we negate the angle
+        self.rotated_image = pygame_instance.transform.rotate(self.base_image, -self.angle_degrees)
 
         # Bomb properties
         self.bomb_radius = 30
-        self.bomb_interval = 50  # drop every N pixels
+        self.bomb_interval = 50  # drop every N pixels of travel
         self.bomb_timer = 0
         self.bombs = []
 
-        # --- IMAGE LOADING WITH FALLBACK (Placeholder) ---
-        try:
-            # Note: This will likely fail if no 'plane.png' exists, but that's expected
-            self.image = pygame_instance.image.load("plane.png").convert_alpha()
-            # Scale it down to a reasonable size
-            self.image = pygame_instance.transform.scale(self.image, (100, 50))
-        except pygame_instance.error:
-            # Placeholder surface if image is missing
-            self.image = pygame_instance.Surface((100, 50))
-            self.image.fill((100, 100, 100))  # Grey placeholder
-            # print("Warning: plane.png not found. Using placeholder for Airstrike.")
+    def draw_dotted_line(self, screen, color, start_pos, end_pos, dash_length=10, gap_length=5):
+        """Draws a dotted line between two points."""
+        dx = end_pos[0] - start_pos[0]
+        dy = end_pos[1] - start_pos[1]
+        distance = math.hypot(dx, dy)
+
+        if distance == 0:
+            return
+
+        unit_dx = dx / distance
+        unit_dy = dy / distance
+
+        current_pos = list(start_pos)
+
+        while True:
+            # Draw dash
+            dash_end_x = current_pos[0] + unit_dx * dash_length
+            dash_end_y = current_pos[1] + unit_dy * dash_length
+
+            if math.hypot(dash_end_x - start_pos[0], dash_end_y - start_pos[1]) > distance:
+                pygame.draw.line(screen, color, (int(current_pos[0]), int(current_pos[1])), end_pos, 2)
+                break  # Reached the end
+            else:
+                pygame.draw.line(screen, color, (int(current_pos[0]), int(current_pos[1])),
+                                 (int(dash_end_x), int(dash_end_y)), 2)
+
+            # Move past the gap
+            current_pos[0] = dash_end_x + unit_dx * gap_length
+            current_pos[1] = dash_end_y + unit_dy * gap_length
+
+            if math.hypot(current_pos[0] - start_pos[0], current_pos[1] - start_pos[1]) > distance:
+                break
 
     def update(self, screen, player, enemy_group, particle_group):
         if self.frame >= self.duration:
@@ -287,11 +344,29 @@ class AirstrikeEvent(GameEvent):
 
         self.frame += 1
 
-        # Plane current position
-        x = self.start_x + self.frame * self.speed * self.dx
-        y = self.start_y + self.frame * self.speed * self.dy
+        # --- WARNING PHASE ---
+        if self.frame <= self.warning_frames:
+            # Draw the path line during the warning phase
+            self.draw_dotted_line(
+                screen,
+                WARNING_LINE_COLOR,
+                (self.start_x, self.start_y),
+                (int(self.end_x), int(self.end_y))
+            )
+            return
 
-        screen.blit(self.image, (int(x), int(y)))  # Must cast to int
+        # --- FLIGHT PHASE ---
+        self.started_flight = True
+
+        # Calculate current position based on normalized direction and frame count after warning
+        flight_frame = self.frame - self.warning_frames
+
+        x = self.start_x + flight_frame * self.speed * self.dx
+        y = self.start_y + flight_frame * self.speed * self.dy
+
+        # Blit the pre-rotated image
+        plane_rect = self.rotated_image.get_rect(center=(int(x), int(y)))
+        screen.blit(self.rotated_image, plane_rect)
 
         # Drop bombs at intervals based on travel distance
         self.bomb_timer += self.speed
@@ -301,20 +376,32 @@ class AirstrikeEvent(GameEvent):
                 "x": x,
                 "y": y,
                 "r": self.bomb_radius,
-                "timer": 100  # Explosion delay
+                "timer": 100  # Reduced explosion delay for flight phase
             })
 
         # Update bombs
         for bomb in list(self.bombs):
             bomb["timer"] -= 1
 
-            # Draw falling bomb
-            pygame.draw.circle(
-                screen,
-                (255, 200, 0),  # Yellow-orange
-                (int(bomb["x"]), int(bomb["y"])),
-                6
-            )
+            # Draw falling bomb (only visible when close to explosion)
+            # if bomb["timer"] > 10:
+            #     pygame.draw.circle(
+            #         screen,
+            #         (255, 200, 0),  # Yellow-orange
+            #         (int(bomb["x"]), int(bomb["y"])),
+            #         6
+            #     )
+
+            # Draw warning circle
+            # if bomb["timer"] > 0 and bomb["timer"] <= 30:
+            #     warning_radius = int(bomb["r"] * (30 - bomb["timer"]) / 30)
+            #     pygame.draw.circle(
+            #         screen,
+            #         (255, 100, 100),  # Light Red for warning
+            #         (int(bomb["x"]), int(bomb["y"])),
+            #         warning_radius,
+            #         1
+            #     )
 
             # Explosion
             if bomb["timer"] <= 0:
@@ -338,12 +425,15 @@ class AirstrikeEvent(GameEvent):
                     ex, ey = enemy.rect.center
                     if ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5 <= bomb["r"]:
                         if enemy.take_hit():
+                            # Note: The score update and particle generation for enemy death
+                            # needs to be handled outside this class or we need a way to pass score/particle group in
+                            # For now, it just kills the enemy. Score is handled in test.py loop.
                             enemy.kill()
 
-                # Damage player
+                            # Damage player
                 px, py = player.rect.center
                 if ((bx - px) ** 2 + (by - py) ** 2) ** 0.5 <= bomb["r"]:
-                    player.health -= 1
+                    player.health -= 2
 
                 # Remove bomb after explosion
                 self.bombs.remove(bomb)
