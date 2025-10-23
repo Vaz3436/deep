@@ -23,7 +23,7 @@ WARNING_LINE_COLOR = (255, 0, 0)
 
 
 class Player(pygame.sprite.Sprite):
-    PLAYER_MAX_HEALTH = 5
+    PLAYER_MAX_HEALTH = 10
 
     def __init__(self, x, y):
         super().__init__()
