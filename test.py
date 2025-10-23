@@ -470,7 +470,7 @@ while True:
         f"Multishot: {player.multi_shot_level}",
         f"Speed: {player.speed_level}",
         f"Rapid: {player.rapid_level}",
-        f"Piercing: {player.piercing_level}",
+        f"Damage: {player.piercing_level}",
         f"Explosive: {player.explosive_level}"
     ]
     for line in hud_lines:
