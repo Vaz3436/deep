@@ -275,7 +275,7 @@ player = Player(WIDTH // 2, HEIGHT // 2)
 PLAYER_MAX_HEALTH = player.PLAYER_MAX_HEALTH
 player_group = pygame.sprite.GroupSingle(player)
 projectile_group = pygame.sprite.Group()
-particle_group = pygame.sprite.Group()
+particle_group = pygame.sprite.Group() #
 
 dungeon = Dungeon()
 

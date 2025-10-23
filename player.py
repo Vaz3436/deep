@@ -620,7 +620,7 @@ class EnemyProjectile(pygame.sprite.Sprite):
             dy = player.rect.centery - y
             dist = max(1.0, math.hypot(dx, dy))
             self.dx = speed * dx / dist
-            self.dy = speed * dy / dist
+            self.dy = speed * dy / dist #
 
     def update(self, walls=None):
         self.pos_x += self.dx
