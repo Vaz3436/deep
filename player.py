@@ -6,6 +6,7 @@ pygame.init()
 # --- Constants ---
 PLAYER_SPEED = 4
 PLAYER_RADIUS = 20
+INVULNERABILITY_FRAMES = 30  # 0.5 seconds at 60 FPS
 
 PROJECTILE_SPEED = 8
 SHOOT_COOLDOWN = 300  # ms
@@ -26,8 +27,11 @@ class Player(pygame.sprite.Sprite):
 
     def __init__(self, x, y):
         super().__init__()
-        self.image = pygame.Surface((PLAYER_RADIUS * 2, PLAYER_RADIUS * 2), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, BLUE, (PLAYER_RADIUS, PLAYER_RADIUS), PLAYER_RADIUS)
+        # Create a base image for drawing and flashing
+        self.original_image = pygame.Surface((PLAYER_RADIUS * 2, PLAYER_RADIUS * 2), pygame.SRCALPHA)
+        pygame.draw.circle(self.original_image, BLUE, (PLAYER_RADIUS, PLAYER_RADIUS), PLAYER_RADIUS)
+
+        self.image = self.original_image.copy()
         self.rect = self.image.get_rect(center=(x, y))
 
         # floating pos for smooth movement of any sub-pixels
@@ -37,16 +41,39 @@ class Player(pygame.sprite.Sprite):
         self.last_shot_time = 0
         self.health = self.PLAYER_MAX_HEALTH
 
+        # --- I-Frame Attributes ---
+        self.invul_timer = 0
+        self.is_flashing = False
+        self.flash_interval = 5  # Flash every 5 frames
+        # -----------------------------
+
         # MULTISHOT: pellet count; start at 1 (single pellet)
         self.multi_shot_level = 1
 
         # New stacked power-up levels (integers)
-        self.speed_level = 0  # +1 movement speed per stack
-        self.rapid_level = 0  # each stack multiplies cooldown by 0.8
-        self.piercing_level = 0  # +1 extra enemy hit per stack
-        self.explosive_level = 0  # explosive radius/damage per stack
+        self.speed_level = 0
+        self.rapid_level = 0
+        self.piercing_level = 0
+        self.explosive_level = 0
 
     def update(self, walls, keys):
+        # --- I-Frame Logic ---
+        if self.invul_timer > 0:
+            self.invul_timer -= 1
+            # Visual flashing
+            if self.invul_timer % self.flash_interval == 0:
+                self.is_flashing = not self.is_flashing
+
+            if self.is_flashing:
+                # Use a transparent image during the flash
+                self.image = pygame.Surface((PLAYER_RADIUS * 2, PLAYER_RADIUS * 2), pygame.SRCALPHA)
+            else:
+                self.image = self.original_image.copy()
+        else:
+            self.image = self.original_image.copy()
+            self.is_flashing = False
+
+        # --- Movement Logic ---
         dx, dy = 0, 0
         spd = PLAYER_SPEED + self.speed_level
         if keys[pygame.K_w]:
@@ -70,6 +97,27 @@ class Player(pygame.sprite.Sprite):
         if pygame.sprite.spritecollide(self, walls, False):
             self.pos_y -= dy
             self.rect.centery = int(self.pos_y)
+
+    def take_damage(self, source_center_x=None, source_center_y=None):
+        """Processes damage, applying i-frames and knockback."""
+        if self.invul_timer > 0:
+            return
+
+        self.health -= 1
+        self.invul_timer = INVULNERABILITY_FRAMES  # Start i-frames
+
+        # Apply Knockback if source position is provided
+        if source_center_x is not None and source_center_y is not None:
+            dx = self.rect.centerx - source_center_x
+            dy = self.rect.centery - source_center_y
+            dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
+            # Apply a significant knockback force
+            knockback_force = 40
+            self.pos_x += knockback_force * dx / dist
+            self.pos_y += knockback_force * dy / dist
+            self.rect.centerx = int(self.pos_x)
+            self.rect.centery = int(self.pos_y)
+
 
     def can_attack(self):
         # cooldown reduced multiplicatively by rapid_level stacks
@@ -230,7 +278,7 @@ class Enemy(pygame.sprite.Sprite):
         pygame.draw.rect(screen, (0, 255, 0), (bar_x, bar_y, current_width, bar_height))
 
 
-# --- BOSS ENEMY CLASS (Updated with attack) ---
+# --- BOSS ENEMY CLASS ---
 class BossEnemy(Enemy):
     def __init__(self, x, y, difficulty_level):
         BOSS_SIZE = ENEMY_SIZE * 2.5
@@ -259,7 +307,7 @@ class BossEnemy(Enemy):
         self.shoot_cooldown = 60 - (difficulty_level * 5)  # Faster attacks with difficulty
         self.shoot_cooldown = max(15, self.shoot_cooldown)
         self.timer = 0
-        self.shot_count = 3 + (difficulty_level //2)*2  # More bullets with difficulty
+        self.shot_count = 3 + (difficulty_level // 2) * 2  # More bullets with difficulty
         self.shot_spread = 60  # degrees
 
     def update(self, player):
@@ -269,7 +317,6 @@ class BossEnemy(Enemy):
                 self.image.fill(self.original_color)
 
         # --- Movement Logic (Drift around center, but don't actively chase) ---
-        # Drift slowly back to center to prevent wandering too far off
         dx = self.center_x - self.pos_x
         dy = self.center_y - self.pos_y
         dist = max(1.0, math.hypot(dx, dy))
@@ -332,36 +379,24 @@ class AirstrikeEvent(GameEvent):
         self.started_flight = False
 
         # --- PATH CALCULATION (Targeting Player) ---
-        # The plane starts far off the top-left, targeting the player's initial position
-
-        # Start point (fixed off-screen top-left)
         self.start_x = -150
         self.start_y = -50
-
-        # Target point (where player was when event started)
         self.target_x = player_x
         self.target_y = player_y
 
-        # Determine the normalized direction vector and angle
         dx = self.target_x - self.start_x
         dy = self.target_y - self.start_y
         magnitude = math.hypot(dx, dy)
 
-        # Normalize direction (ensure magnitude > 0 to avoid division by zero)
         if magnitude > 0:
             self.dx = dx / magnitude
             self.dy = dy / magnitude
         else:
             self.dx = 1.0
-            self.dy = 0.0  # Default to moving right if magnitude is zero
+            self.dy = 0.0
 
         self.speed = 10  # pixels per frame
-
-        # Calculate rotation angle once at initialization
         self.angle_degrees = math.degrees(math.atan2(self.dy, self.dx))
-
-        # Calculate the end point (to draw the path line)
-        # We project the vector far past the screen boundary
         projection_factor = max(self.width, self.height) * 1.5
         self.end_x = self.start_x + self.dx * projection_factor
         self.end_y = self.start_y + self.dy * projection_factor
@@ -374,8 +409,6 @@ class AirstrikeEvent(GameEvent):
             self.base_image = pygame_instance.Surface((100, 50))
             self.base_image.fill((100, 100, 100))
 
-        # Apply the rotation calculated above
-        # Pygame rotates counter-clockwise, so we negate the angle
         self.rotated_image = pygame_instance.transform.rotate(self.base_image, -self.angle_degrees)
 
         # Bomb properties
@@ -398,13 +431,10 @@ class AirstrikeEvent(GameEvent):
 
         current_pos = list(start_pos)
 
-        # Ensure the line is drawn to the end point, even if distance is short
         while True:
-            # Draw dash
             dash_end_x = current_pos[0] + unit_dx * dash_length
             dash_end_y = current_pos[1] + unit_dy * dash_length
 
-            # Check total distance traveled
             current_dist = math.hypot(current_pos[0] - start_pos[0], current_pos[1] - start_pos[1])
             dist_to_dash_end = math.hypot(dash_end_x - start_pos[0], dash_end_y - start_pos[1])
 
@@ -412,16 +442,15 @@ class AirstrikeEvent(GameEvent):
                 break
 
             if dist_to_dash_end > distance:
-                # Draw the final partial dash
                 pygame.draw.line(screen, color, (int(current_pos[0]), int(current_pos[1])), end_pos, 2)
                 break
             else:
                 pygame.draw.line(screen, color, (int(current_pos[0]), int(current_pos[1])),
                                  (int(dash_end_x), int(dash_end_y)), 2)
 
-            # Move past the gap
             current_pos[0] = dash_end_x + unit_dx * gap_length
             current_pos[1] = dash_end_y + unit_dy * gap_length
+
 
     def update(self, screen, player, enemy_group, particle_group):
         if self.frame >= self.duration:
@@ -432,7 +461,6 @@ class AirstrikeEvent(GameEvent):
 
         # --- WARNING PHASE ---
         if self.frame <= self.warning_frames:
-            # Draw the path line during the warning phase
             self.draw_dotted_line(
                 screen,
                 WARNING_LINE_COLOR,
@@ -443,18 +471,15 @@ class AirstrikeEvent(GameEvent):
 
         # --- FLIGHT PHASE ---
         self.started_flight = True
-
-        # Calculate current position based on normalized direction and frame count after warning
         flight_frame = self.frame - self.warning_frames
 
         x = self.start_x + flight_frame * self.speed * self.dx
         y = self.start_y + flight_frame * self.speed * self.dy
 
-        # Blit the pre-rotated image
         plane_rect = self.rotated_image.get_rect(center=(int(x), int(y)))
         screen.blit(self.rotated_image, plane_rect)
 
-        # Drop bombs at intervals based on travel distance
+        # Drop bombs
         self.bomb_timer += self.speed
         if self.bomb_timer >= self.bomb_interval:
             self.bomb_timer = 0
@@ -469,11 +494,11 @@ class AirstrikeEvent(GameEvent):
         for bomb in list(self.bombs):
             bomb["timer"] -= 1
 
-            # Draw falling bomb (only visible when close to explosion)
+            # Draw falling bomb
             if bomb["timer"] > 10:
                 pygame.draw.circle(
                     screen,
-                    (255, 200, 0),  # Yellow-orange
+                    (255, 200, 0),
                     (int(bomb["x"]), int(bomb["y"])),
                     6
                 )
@@ -483,7 +508,7 @@ class AirstrikeEvent(GameEvent):
                 warning_radius = int(bomb["r"] * (30 - bomb["timer"]) / 30)
                 pygame.draw.circle(
                     screen,
-                    (255, 100, 100),  # Light Red for warning
+                    (255, 100, 100),
                     (int(bomb["x"]), int(bomb["y"])),
                     warning_radius,
                     1
@@ -493,10 +518,10 @@ class AirstrikeEvent(GameEvent):
             if bomb["timer"] <= 0:
                 bx, by = bomb["x"], bomb["y"]
 
-                # Explosion visual (drawn for one frame)
+                # Explosion visual
                 pygame.draw.circle(
                     screen,
-                    (255, 100, 0),  # Orange-red
+                    (255, 100, 0),
                     (int(bx), int(by)),
                     bomb["r"],
                     2
@@ -513,10 +538,10 @@ class AirstrikeEvent(GameEvent):
                         if enemy.take_hit():
                             enemy.kill()
 
-                            # Damage player
+                # Damage player - USE take_damage
                 px, py = player.rect.center
                 if ((bx - px) ** 2 + (by - py) ** 2) ** 0.5 <= bomb["r"]:
-                    player.health -= 1
+                    player.take_damage(source_center_x=bx, source_center_y=by)
 
                 # Remove bomb after explosion
                 self.bombs.remove(bomb)
@@ -536,7 +561,6 @@ class ShooterEnemy(Enemy):
         self.timer += 1
         if self.timer >= self.shoot_cooldown:
             self.timer = 0
-            # Default to tracking player
             return EnemyProjectile(self.rect.centerx, self.rect.centery, player)
         return None
 
@@ -587,7 +611,6 @@ class EnemyProjectile(pygame.sprite.Sprite):
 
         speed = 5.0
 
-        # If angle is provided (used by Boss), use it. Otherwise, track the player.
         if angle is not None:
             rad = math.radians(angle)
             self.dx = speed * math.cos(rad)

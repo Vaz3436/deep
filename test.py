@@ -30,7 +30,7 @@ ROOMS_CLEARED_TOTAL = 0  # Global Variable
 DIFFICULTY_LEVEL = 1  # Global Variable
 BASE_ENEMIES = 3
 ENEMY_HEALTH_SCALE = 1.2
-BOSS_INTERVAL = 2  # Rooms cleared before a boss appears (every 6 or 7 rooms)
+BOSS_INTERVAL = 2  # Rooms cleared before a boss appears (for quick testing)
 
 
 # --- Wall Class ---
@@ -112,47 +112,31 @@ class Room:
         wall_thickness = 40
         door_width = 100
         door_block_thickness = 10
-        door_start_h = WIDTH // 2 - door_width // 2  # 350
-        door_end_h = WIDTH // 2 + door_width // 2  # 450
-        door_start_v = HEIGHT // 2 - door_width // 2  # 250
-        door_end_v = HEIGHT // 2 + door_width // 2  # 350
+        door_start_h = WIDTH // 2 - door_width // 2
+        door_end_h = WIDTH // 2 + door_width // 2
+        door_start_v = HEIGHT // 2 - door_width // 2
+        door_end_v = HEIGHT // 2 + door_width // 2
 
         # --- Permanent Base Walls (creating the door gap) ---
-        # Top Wall Segments (y=0 to y=wall_thickness)
         self.walls.add(Wall(0, 0, door_start_h, wall_thickness))
         self.walls.add(Wall(door_end_h, 0, WIDTH - door_end_h, wall_thickness))
-
-        # Bottom Wall Segments (y=HEIGHT-wall_thickness to y=HEIGHT)
         self.walls.add(Wall(0, HEIGHT - wall_thickness, door_start_h, wall_thickness))
         self.walls.add(Wall(door_end_h, HEIGHT - wall_thickness, WIDTH - door_end_h, wall_thickness))
-
-        # Left Wall Segments (x=0 to x=wall_thickness)
         self.walls.add(Wall(0, 0, wall_thickness, door_start_v))
         self.walls.add(Wall(0, door_end_v, wall_thickness, HEIGHT - door_end_v))
-
-        # Right Wall Segments (x=WIDTH-wall_thickness to x=WIDTH)
         self.walls.add(Wall(WIDTH - wall_thickness, 0, wall_thickness, door_start_v))
         self.walls.add(Wall(WIDTH - wall_thickness, door_end_v, wall_thickness, HEIGHT - door_end_v))
 
         # --- Door Blocks (Fill the gap when locked) ---
-        # These are thin blocks positioned directly on the screen edge to prevent escape.
-
-        # Top Door Block (x=350, y=0, w=100, h=10)
         top_block = Wall(door_start_h, 0, door_width, door_block_thickness)
         self.walls.add(top_block)
         self.door_walls.add(top_block)
-
-        # Bottom Door Block (x=350, y=590, w=100, h=10)
         bottom_block = Wall(door_start_h, HEIGHT - door_block_thickness, door_width, door_block_thickness)
         self.walls.add(bottom_block)
         self.door_walls.add(bottom_block)
-
-        # Left Door Block (x=0, y=250, w=10, h=100)
         left_block = Wall(0, door_start_v, door_block_thickness, door_width)
         self.walls.add(left_block)
         self.door_walls.add(left_block)
-
-        # Right Door Block (x=790, y=250, w=10, h=100)
         right_block = Wall(WIDTH - door_block_thickness, door_start_v, door_block_thickness, door_width)
         self.walls.add(right_block)
         self.door_walls.add(right_block)
@@ -183,7 +167,6 @@ class Room:
 
         # Remove all door blocks, opening the path
         for wall in list(self.door_walls):
-            # This kills the sprite, removing it from all groups (self.walls and self.door_walls)
             wall.kill()
 
         self.doors_locked = False
@@ -200,23 +183,21 @@ class Room:
                 self.events.remove(event)
 
         # enemy AI
-        # This is where the fix is applied: handling lists of projectiles from the boss
         for enemy in list(self.enemies):
             result = enemy.update(player)
             if result is not None:
                 if isinstance(result, pygame.sprite.Sprite):
-                    # For regular ShooterEnemy
                     self.enemy_projectiles.add(result)
                 elif isinstance(result, list):
-                    # For BossEnemy which returns a list of projectiles
-                    self.enemy_projectiles.add(*result)  # The * unpacks the list
+                    # Handle multiple projectiles from BossEnemy
+                    self.enemy_projectiles.add(*result)
 
         # check clear
         if not self.cleared and not self.enemies:
             self.cleared = True
             self.unlock_doors()
             # drop powerup chance
-            if random.random() < 0.75 or self.is_boss_room:  # Higher chance after a boss
+            if random.random() < 0.75 or self.is_boss_room:
                 self.powerups.add(PowerUp(WIDTH // 2, HEIGHT // 2))
 
             # If it was a boss room, drop an extra guaranteed powerup
@@ -225,12 +206,11 @@ class Room:
 
             # Chance to trigger an Airstrike
             if random.random() < 0.2:
-                # AirstrikeEvent signature: (width, height, player_x, player_y, pygame_instance)
                 airstrike = AirstrikeEvent(
                     WIDTH, HEIGHT,
                     player.rect.centerx,
                     player.rect.centery,
-                    pygame  # Pass the pygame module for image loading
+                    pygame
                 )
                 self.events.append(airstrike)
 
@@ -270,8 +250,6 @@ def check_room_transition(player, dungeon):
     margin = 10
     px, py = player.rect.center
 
-    # Transition logic only triggers if the doors are explicitly unlocked.
-    # Player movement is blocked by room.walls (which include door_walls) if locked.
     if dungeon.get_room().doors_locked:
         return
 
@@ -294,7 +272,7 @@ def check_room_transition(player, dungeon):
 
 # --- Create Player and Groups ---
 player = Player(WIDTH // 2, HEIGHT // 2)
-PLAYER_MAX_HEALTH = player.PLAYER_MAX_HEALTH  # For clean HUD access
+PLAYER_MAX_HEALTH = player.PLAYER_MAX_HEALTH
 player_group = pygame.sprite.GroupSingle(player)
 projectile_group = pygame.sprite.Group()
 particle_group = pygame.sprite.Group()
@@ -316,7 +294,7 @@ while True:
                 paused = not paused
             if game_over and event.key == pygame.K_r:
                 # --- Restart Logic ---
-                ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL  # THE NECESSARY GLOBAL KEYWORDS
+                ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL
 
                 ROOMS_CLEARED_TOTAL = 0
                 DIFFICULTY_LEVEL = 1
@@ -329,6 +307,7 @@ while True:
                 player.piercing_level = 0
                 player.explosive_level = 0
                 player.last_shot_time = 0
+                player.invul_timer = 0
                 projectile_group.empty()
                 particle_group.empty()
                 player.pos_x, player.pos_y = WIDTH // 2, HEIGHT // 2
@@ -365,17 +344,12 @@ while True:
         room.update(player, particle_group, projectile_group)
         check_room_transition(player, dungeon)
 
-        # Enemy collisions
+        # Enemy collisions (now uses player.take_damage for i-frames/knockback)
         for enemy in list(room.enemies):
             if player.rect.colliderect(enemy.rect):
-                player.health -= 1
-                dx = player.rect.centerx - enemy.rect.centerx
-                dy = player.rect.centery - enemy.rect.centery
-                dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
-                player.pos_x += 20 * dx / dist
-                player.pos_y += 20 * dy / dist
+                player.take_damage(enemy.rect.centerx, enemy.rect.centery)
 
-        # Projectile hits
+        # Projectile hits (unchanged - applies damage to enemies)
         for proj in list(projectile_group):
             hits = pygame.sprite.spritecollide(proj, room.enemies, False)
             if hits:
@@ -405,11 +379,11 @@ while True:
                             proj.kill()
                             break
 
-        # Enemy projectiles
+        # Enemy projectiles (now uses player.take_damage for i-frames/knockback)
         for ep in list(room.enemy_projectiles):
             if player.rect.colliderect(ep.rect):
                 ep.kill()
-                player.health -= 1
+                player.take_damage(ep.rect.centerx, ep.rect.centery)
 
         # Powerups
         collected = pygame.sprite.spritecollide(player, room.powerups, True)
@@ -417,7 +391,6 @@ while True:
             if pu.type == "health":
                 player.health = min(PLAYER_MAX_HEALTH, player.health + 2)
             elif pu.type == "multi":
-                # Additive stacking: 1 -> 3 -> 5 -> 7...
                 if player.multi_shot_level == 1:
                     player.multi_shot_level = 3
                 else:
@@ -438,11 +411,12 @@ while True:
     screen.fill(GREY)
     room = dungeon.get_room()
     room.walls.draw(screen)
-    player_group.draw(screen)
+
+    # Player is drawn via player_group.draw(screen) below
+
     projectile_group.draw(screen)
     room.enemies.draw(screen)
 
-    # Draw enemy health bars (Fixed to safely iterate over the group's current sprites)
     for enemy in room.enemies.sprites():
         enemy.draw_health_bar(screen)
 
@@ -450,7 +424,10 @@ while True:
     particle_group.draw(screen)
     room.powerups.draw(screen)
 
-    # Draw Airstrike Events (if active)
+    # Draw player (handles flashing logic inside Player.update)
+    player_group.draw(screen)
+
+    # Draw Airstrike Events
     for event in room.events:
         event.update(screen, player, room.enemies, particle_group)
 
