@@ -59,7 +59,7 @@ class Player(pygame.sprite.Sprite):
     def update(self, walls, keys):
         # --- I-Frame Logic ---
         if self.invul_timer > 0:
-            self.invul_timer -= 1
+            self.invul_timer -= 1 #
             # Visual flashing
             if self.invul_timer % self.flash_interval == 0:
                 self.is_flashing = not self.is_flashing
