@@ -1,10 +1,13 @@
+# main.py (UPDATED)
 import pygame
 import sys
 import random
 
-# Import the new BossEnemy class
-from player import Player, Projectile, Enemy, ShooterEnemy, JumperEnemy, EnemyProjectile, Particle, AirstrikeEvent, \
-    BossEnemy
+# Import the new boss creation helper and BossEnemy class
+from player import (
+    Player, Projectile, Enemy, ShooterEnemy, JumperEnemy,
+    EnemyProjectile, Particle, AirstrikeEvent, create_boss_by_index, BossEnemy
+)
 
 # --- Settings ---
 WIDTH, HEIGHT = 800, 600
@@ -16,6 +19,9 @@ DARK_GREY = (59, 59, 59)
 HEALTH_BAR_COLOR = (255, 0, 0)
 HEALTH_BAR_BG_COLOR = (100, 0, 0)
 WHITE = (255, 255, 255)
+BOSS_BAR_BG = (30, 20, 20)
+BOSS_BAR_FG = (200, 130, 60)
+BOSS_NAME_COLOR = (230, 210, 170)
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -30,8 +36,7 @@ ROOMS_CLEARED_TOTAL = 0  # Global Variable
 DIFFICULTY_LEVEL = 1  # Global Variable
 BASE_ENEMIES = 3
 ENEMY_HEALTH_SCALE = 1.2
-BOSS_INTERVAL = 2  # Rooms cleared before a boss appears (for quick testing)
-
+BOSS_INTERVAL = 5  # Boss every 5 cleared rooms
 
 # --- Wall Class ---
 class Wall(pygame.sprite.Sprite):
@@ -104,6 +109,11 @@ class Room:
         self.is_boss_room = False
         self.create_walls_with_doors()
 
+        # boss UI state
+        self.boss_ui_alpha = 0
+        self.boss_ui_fade = False
+        self.boss_spawned = False
+
     def create_walls_with_doors(self):
         """
         Creates outer walls and door blocks to seal the room.
@@ -143,13 +153,23 @@ class Room:
 
     def spawn_enemies(self, player):
         # Determine if this room should spawn a boss
+        global ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL
+
         if ROOMS_CLEARED_TOTAL > 0 and (ROOMS_CLEARED_TOTAL + 1) % BOSS_INTERVAL == 0:
             self.is_boss_room = True
 
-            # Spawn a single boss in the center
-            boss = BossEnemy(WIDTH // 2, HEIGHT // 2, DIFFICULTY_LEVEL)
+            # Determine boss index (0-based) and boss stage
+            boss_num = ((ROOMS_CLEARED_TOTAL + 1) // BOSS_INTERVAL) - 1
+            boss_index = boss_num % 20
+            boss_stage = boss_num  # number of bosses that have been faced before
+
+            # Create boss via helper (now passes boss_stage)
+            boss = create_boss_by_index(boss_index, WIDTH // 2, HEIGHT // 2, DIFFICULTY_LEVEL, boss_stage)
             self.enemies.add(boss)
-            print(f"BOSS SPAWNED: Health {boss.max_health}")
+            self.boss_ui_fade = True
+            self.boss_ui_alpha = 0
+            self.boss_spawned = True
+            print(f"BOSS SPAWNED: #{boss_index+1} ({getattr(boss, 'display_name', boss.__class__.__name__)}) Health {boss.max_health}")
         else:
             # Spawn regular enemies
             num_enemies = int(BASE_ENEMIES + DIFFICULTY_LEVEL * 0.5)
@@ -186,11 +206,44 @@ class Room:
         for enemy in list(self.enemies):
             result = enemy.update(player)
             if result is not None:
+                # handle single sprite returns
                 if isinstance(result, pygame.sprite.Sprite):
-                    self.enemy_projectiles.add(result)
+                    # If the returned sprite is an Enemy => spawn it into enemies
+                    if isinstance(result, Enemy):
+                        self.enemies.add(result)
+                    # If it's a projectile => add to enemy_projectiles (tag with source & damage)
+                    elif isinstance(result, EnemyProjectile):
+                        # associate with source enemy, scale damage if enemy has projectile_damage
+                        result.source = enemy
+                        result.damage = getattr(enemy, "projectile_damage", getattr(enemy, "contact_damage", 1))
+                        self.enemy_projectiles.add(result)
+                    else:
+                        # default: add to enemy_projectiles
+                        try:
+                            result.source = enemy
+                            result.damage = getattr(enemy, "projectile_damage", getattr(enemy, "contact_damage", 1))
+                        except Exception:
+                            pass
+                        self.enemy_projectiles.add(result)
                 elif isinstance(result, list):
-                    # Handle multiple projectiles from BossEnemy
-                    self.enemy_projectiles.add(*result)
+                    # a mixed list might contain projectiles and/or enemies
+                    for r in result:
+                        if isinstance(r, Enemy):
+                            self.enemies.add(r)
+                        elif isinstance(r, EnemyProjectile):
+                            # tag projectile with its source and scale damage
+                            r.source = enemy
+                            r.damage = getattr(enemy, "projectile_damage", getattr(enemy, "contact_damage", 1))
+                            self.enemy_projectiles.add(r)
+                        else:
+                            # assume projectile-like
+                            try:
+                                # if it's a projectile-like sprite, tag it
+                                r.source = enemy
+                                r.damage = getattr(enemy, "projectile_damage", getattr(enemy, "contact_damage", 1))
+                                self.enemy_projectiles.add(r)
+                            except Exception:
+                                pass
 
         # check clear
         if not self.cleared and not self.enemies:
@@ -294,8 +347,6 @@ while True:
                 paused = not paused
             if game_over and event.key == pygame.K_r:
                 # --- Restart Logic ---
-                ROOMS_CLEARED_TOTAL, DIFFICULTY_LEVEL
-
                 ROOMS_CLEARED_TOTAL = 0
                 DIFFICULTY_LEVEL = 1
 
@@ -347,7 +398,7 @@ while True:
         # Enemy collisions (now uses player.take_damage for i-frames/knockback)
         for enemy in list(room.enemies):
             if player.rect.colliderect(enemy.rect):
-                player.take_damage(enemy.rect.centerx, enemy.rect.centery)
+                player.take_damage(enemy.rect.centerx, enemy.rect.centery, damage=getattr(enemy, "contact_damage", 1))
 
         # Projectile hits (unchanged - applies damage to enemies)
         for proj in list(projectile_group):
@@ -383,7 +434,7 @@ while True:
         for ep in list(room.enemy_projectiles):
             if player.rect.colliderect(ep.rect):
                 ep.kill()
-                player.take_damage(ep.rect.centerx, ep.rect.centery)
+                player.take_damage(ep.rect.centerx, ep.rect.centery, damage=getattr(ep, "damage", 1))
 
         # Powerups
         collected = pygame.sprite.spritecollide(player, room.powerups, True)
@@ -417,7 +468,11 @@ while True:
     projectile_group.draw(screen)
     room.enemies.draw(screen)
 
+    # Draw health bars for non-boss enemies; boss uses top-centered UI
     for enemy in room.enemies.sprites():
+        if room.is_boss_room and isinstance(enemy, BossEnemy):
+            # skip per-boss-head healthbar - handled via top UI
+            continue
         enemy.draw_health_bar(screen)
 
     room.enemy_projectiles.draw(screen)
@@ -440,11 +495,80 @@ while True:
     room_text = font.render(f"Room: {room.coords}", True, (0, 0, 0))
     difficulty_text = font.render(f"Level: {DIFFICULTY_LEVEL}", True, (0, 0, 0))
 
-    # Boss health warning
+    # Boss UI (top-centered) - stylized medieval frame + title + centered health bar
+    def draw_boss_ui(room):
+        # only if room flagged as boss room and a boss exists
+        if not room.is_boss_room:
+            return
+        bosses = [e for e in room.enemies.sprites() if isinstance(e, BossEnemy)]
+        if not bosses:
+            # fade out the UI after boss cleared
+            if room.boss_ui_alpha > 0:
+                room.boss_ui_alpha = max(0, room.boss_ui_alpha - 12)
+            return
+        boss = bosses[0]
+        # fade in
+        if room.boss_ui_alpha < 255:
+            room.boss_ui_alpha = min(255, room.boss_ui_alpha + 14)
+
+        alpha = room.boss_ui_alpha
+        # create surface for UI so we can set alpha smoothly
+        ui_h = 88
+        ui_w = WIDTH
+        surf = pygame.Surface((ui_w, ui_h), pygame.SRCALPHA)
+        # semi-ornate plate behind bar
+        plate_rect = (ui_w//2 - 340, 8, 680, 36)
+        # medieval-ish glowing frame (simple)
+        pygame.draw.rect(surf, (20, 14, 10, alpha), plate_rect, border_radius=8)
+        pygame.draw.rect(surf, (80, 50, 30, alpha), (plate_rect[0]+4, plate_rect[1]+4, plate_rect[2]-8, plate_rect[3]-8), border_radius=6)
+        # spikes/decals on sides (medieval: stylized horns)
+        left_x = plate_rect[0]
+        right_x = plate_rect[0] + plate_rect[2]
+        mid_y = plate_rect[1] + plate_rect[3]//2
+        # left horn
+        pygame.draw.polygon(surf, (60, 40, 25, alpha), [(left_x-12, mid_y), (left_x+6, mid_y-12), (left_x+6, mid_y+12)])
+        # right horn
+        pygame.draw.polygon(surf, (60, 40, 25, alpha), [(right_x+12, mid_y), (right_x-6, mid_y-12), (right_x-6, mid_y+12)])
+        # decorative rivets
+        for i in range(6):
+            rx = plate_rect[0] + 20 + i * 110
+            pygame.draw.circle(surf, (100, 70, 50, alpha), (rx, plate_rect[1] + plate_rect[3]//2), 4)
+
+        # boss name (bold)
+        name_text = font.render(f"BOSS: {getattr(boss, 'display_name', boss.__class__.__name__)}", True, BOSS_NAME_COLOR)
+        name_x = ui_w//2 - name_text.get_width()//2
+        surf.blit(name_text, (name_x, plate_rect[1]-26))
+
+        # centered health bar beneath
+        bar_w = 600
+        bar_h = 18
+        bar_x = ui_w//2 - bar_w//2
+        bar_y = plate_rect[1] + plate_rect[3] + 8
+        # background plate
+        pygame.draw.rect(surf, (20, 12, 8, alpha), (bar_x-6, bar_y-6, bar_w+12, bar_h+12), border_radius=10)
+        # bar background
+        pygame.draw.rect(surf, (50, 20, 10, alpha), (bar_x, bar_y, bar_w, bar_h), border_radius=8)
+        ratio = max(0.0, boss.health / boss.max_health)
+        cur_w = int(bar_w * ratio)
+        # pulse if < 25%
+        pulse = 0
+        if ratio < 0.25:
+            pulse = int((1 + (pygame.time.get_ticks() // 200) % 2) * 6)
+        pygame.draw.rect(surf, (BOSS_BAR_FG[0], BOSS_BAR_FG[1], BOSS_BAR_FG[2], alpha),
+                         (bar_x - pulse//2, bar_y - pulse//2, max(2, cur_w + pulse), bar_h + pulse), border_radius=8)
+
+        # draw the composed UI onto main screen with overall alpha
+        surf.set_alpha(alpha)
+        screen.blit(surf, (0, 8))
+
+    # call to draw boss UI
+    draw_boss_ui(room)
+
+    # Boss health warning (if you still want a small in-corner readout)
     if room.is_boss_room and room.enemies:
-        boss = room.enemies.sprites()[0]
-        boss_health_text = font.render(f"BOSS HP: {boss.health}/{boss.max_health}", True, (255, 0, 0))
-        screen.blit(boss_health_text, (WIDTH - boss_health_text.get_width() - 10, 10))
+        boss = [e for e in room.enemies.sprites() if isinstance(e, BossEnemy)][0]
+        boss_health_text = font.render(f"{getattr(boss, 'display_name', boss.__class__.__name__)} HP: {boss.health}/{boss.max_health}", True, (255, 220, 180))
+        screen.blit(boss_health_text, (WIDTH//2 - boss_health_text.get_width()//2, 56))
 
     screen.blit(score_text, (10, 40))
     screen.blit(room_text, (10, 70))
