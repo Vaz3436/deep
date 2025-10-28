@@ -24,7 +24,7 @@ WARNING_LINE_COLOR = (255, 0, 0)
 
 
 class Player(pygame.sprite.Sprite):
-    PLAYER_MAX_HEALTH = 10
+    PLAYER_MAX_HEALTH = 5000
 
     def __init__(self, x, y):
         super().__init__()
@@ -52,10 +52,10 @@ class Player(pygame.sprite.Sprite):
         self.multi_shot_level = 1
 
         # New stacked power-up levels (integers)
-        self.speed_level = 1
-        self.rapid_level = 1
-        self.piercing_level = 1
-        self.explosive_level = 1
+        self.speed_level = 0
+        self.rapid_level = 0
+        self.piercing_level = 0
+        self.explosive_level = 0
 
         # Slow effect (applied by bosses like Frost King)
         self.slow_timer = 0
@@ -126,16 +126,16 @@ class Player(pygame.sprite.Sprite):
         self.invul_timer = INVULNERABILITY_FRAMES  # Start i-frames
 
         # Apply Knockback if source position is provided
-        if source_center_x is not None and source_center_y is not None:
-            dx = self.rect.centerx - source_center_x
-            dy = self.rect.centery - source_center_y
-            dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
-            # Knockback force scales with damage (so heavy hits shove more)
-            knockback_force = 20 * (1 + damage * 0.4)
-            self.pos_x += knockback_force * dx / dist
-            self.pos_y += knockback_force * dy / dist
-            self.rect.centerx = int(self.pos_x)
-            self.rect.centery = int(self.pos_y)
+        # if source_center_x is not None and source_center_y is not None:
+        #     dx = self.rect.centerx - source_center_x
+        #     dy = self.rect.centery - source_center_y
+        #     dist = max(1, (dx ** 2 + dy ** 2) ** 0.5)
+        #     # Knockback force scales with damage (so heavy hits shove more)
+        #     knockback_force = 20 * (1 + damage * 0.4)
+        #     self.pos_x += knockback_force * dx / dist
+        #     self.pos_y += knockback_force * dy / dist
+        #     self.rect.centerx = int(self.pos_x)
+        #     self.rect.centery = int(self.pos_y)
 
 
     def can_attack(self):
@@ -323,7 +323,7 @@ class BossEnemy(Enemy):
 
         # Boss stats scale with difficulty (difficulty_level starting at 1)
         base_hp = 30
-        self.max_health = int(base_hp * (1.2 ** difficulty_level))
+        self.max_health = int(base_hp * (difficulty_level))
         self.health = self.max_health
 
         # movement
@@ -335,7 +335,7 @@ class BossEnemy(Enemy):
 
         # attack timing
         self.timer = 0
-        self.shoot_cooldown = max(20, 80 - difficulty_level * 3)
+        self.shoot_cooldown = max(20, 80 - difficulty_level * 5)
 
         # contact/projectile damage defaults (will be scaled by stage)
         self.contact_damage = 2
@@ -421,7 +421,7 @@ class Boss01_Core(BossEnemy):
         self.rect = self.image.get_rect(center=(x, y))
         self.max_health = int(8 * (1.15 ** difficulty_level))
         self.health = self.max_health
-        self.shoot_cooldown = max(40, 90 - difficulty_level * 2)
+        self.shoot_cooldown = max(40, 90 - difficulty_level * 4)
         self.timer = 0
         self.speed = 0.6 + difficulty_level * 0.02
         self.display_name = "Mini Core"
