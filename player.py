@@ -24,7 +24,7 @@ WARNING_LINE_COLOR = (255, 0, 0)
 
 
 class Player(pygame.sprite.Sprite):
-    PLAYER_MAX_HEALTH = 50
+    PLAYER_MAX_HEALTH = 20
 
     def __init__(self, x, y):
         super().__init__()
@@ -60,7 +60,6 @@ class Player(pygame.sprite.Sprite):
         # Slow effect (applied by bosses like Frost King)
         self.slow_timer = 0
         self.slow_factor = 1.0
-
     def apply_slow(self, duration_frames, factor):
         """Apply a slow (factor < 1.0) for duration_frames."""
         # If stronger slow incoming, overwrite
