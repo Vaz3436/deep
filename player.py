@@ -24,7 +24,7 @@ WARNING_LINE_COLOR = (255, 0, 0)
 
 
 class Player(pygame.sprite.Sprite):
-    PLAYER_MAX_HEALTH = 5000
+    PLAYER_MAX_HEALTH = 50
 
     def __init__(self, x, y):
         super().__init__()
@@ -144,6 +144,7 @@ class Player(pygame.sprite.Sprite):
         cooldown = max(50, int(cooldown))
         return pygame.time.get_ticks() - self.last_shot_time > cooldown
 
+
     def attack(self, direction):
         """
         Returns a list of Projectile objects.
@@ -151,15 +152,17 @@ class Player(pygame.sprite.Sprite):
         multi_shot_level stores the pellet count (1, 3, 5, 7, ...).
         """
         self.last_shot_time = pygame.time.get_ticks()
+        random_integer = random.randint(1, 10)
+        random_integer2 = random.randint(1, 10)
 
         if direction == "up":
-            base_angle = -90.0
+            base_angle = -90.0 + (random_integer) - (random_integer2)
         elif direction == "down":
-            base_angle = 90.0
+            base_angle = 90.0 + (random_integer) - (random_integer2)
         elif direction == "left":
-            base_angle = 180.0
+            base_angle = 180.0 + (random_integer) - (random_integer2)
         else:
-            base_angle = 0.0
+            base_angle = 0.0 + (random_integer) - (random_integer2)
 
         num_shots = int(self.multi_shot_level)
         projectiles = []
